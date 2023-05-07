@@ -59,13 +59,33 @@ func main() {
 	})
 
 	apiRouter := r.Group("/api")
-	apiRouter.GET("/project/:project/image")
 
+	apiRouter.GET("/device/runtime/video")
 	apiRouter.PUT("/device/webdav", ctlWebdav)
 
 	// todo call cancelWebdav()
 
 	utils.ListenAndServe(r, *port)
+}
+
+func runtimeVideo(c *gin.Context) {
+	//mimeWriter := multipart.NewWriter(c.Writer)
+	//c.Header("Content-Type", fmt.Sprintf("multipart/x-mixed-replace; boundary=%s", mimeWriter.Boundary()))
+	//partHeader := make(textproto.MIMEHeader)
+	//partHeader.Add("Content-Type", "image/jpeg")
+	//
+	//var frame []byte
+	//for frame = range frames {
+	//	partWriter, err := mimeWriter.CreatePart(partHeader)
+	//	if err != nil {
+	//		logger.Warnf("failed to create multi-part writer: %s", err)
+	//		return
+	//	}
+	//
+	//	if _, err := partWriter.Write(frame); err != nil {
+	//		logger.Warnf("failed to write image: %s", err)
+	//	}
+	//}
 }
 
 func ctlWebdav(c *gin.Context) {

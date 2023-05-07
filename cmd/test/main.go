@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"image"
+	"image/png"
 	"log"
+	"os"
+	"time"
 
-	dev "github.com/vladimirvivien/go4vl/device"
+	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
 )
 
@@ -14,38 +19,58 @@ func main() {
 	flag.StringVar(&devName, "d", devName, "device name (path)")
 	flag.Parse()
 
-	device, err := dev.Open(devName)
+	// open device
+	device, err := device.Open(
+		devName,
+		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtRGB24, Width: 3280, Height: 2464}),
+	)
 	if err != nil {
 		log.Fatalf("failed to open device: %s", err)
 	}
 	defer device.Close()
 
-	ctrls, err := device.QueryAllControls()
+	// start stream
+	ctx, stop := context.WithCancel(context.TODO())
+	if err := device.Start(ctx); err != nil {
+		log.Fatalf("failed to start stream: %s", err)
+	}
+	t1 := time.Now()
+	frame := <-device.GetOutput()
+	t2 := time.Now()
+
+	fileName := fmt.Sprintf("raw1")
+	file, err := os.Create(fileName)
 	if err != nil {
-		log.Fatalf("failed to get ext controls: %s", err)
+		log.Fatal(err)
 	}
+	if _, err := file.Write(frame); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Saved file: %s", fileName)
+	if err := file.Close(); err != nil {
+		log.Fatal(err)
+	}
+	t3 := time.Now()
 
-	if len(ctrls) == 0 {
-		log.Println("Device does not have extended controls")
-		return
+	img := image.NewRGBA(image.Rect(0, 0, 3280, 2464))
+	img.Pix = frame
+
+	if err := writeImage(img, "out.png"); err != nil {
+		log.Println(err)
 	}
-	for _, ctrl := range ctrls {
-		printControl(ctrl)
-	}
+	log.Println(t2.Sub(t1))
+	log.Println(t3.Sub(t2))
+
+	stop() // stop capture
+	fmt.Println("Done.")
+
 }
-
-func printControl(ctrl v4l2.Control) {
-	fmt.Printf("Control id (%d) name: %s\t[min: %d; max: %d; step: %d; default: %d current_val: %d]\n",
-		ctrl.ID, ctrl.Name, ctrl.Minimum, ctrl.Maximum, ctrl.Step, ctrl.Default, ctrl.Value)
-	if ctrl.IsMenu() {
-		menus, err := ctrl.GetMenuItems()
-		if err != nil {
-			return
-		}
-
-		for _, m := range menus {
-			fmt.Printf("\t(%d) Menu %s: [%d]\n", m.Index, m.Name, m.Value)
-		}
+func writeImage(img image.Image, name string) error {
+	fd, err := os.Create(name)
+	if err != nil {
+		return err
 	}
+	defer fd.Close()
 
+	return png.Encode(fd, img)
 }
