@@ -3,9 +3,10 @@ package webdav
 import (
 	"context"
 	"fmt"
-	"go.uber.org/zap"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
 
 	"golang.org/x/net/webdav"
 )

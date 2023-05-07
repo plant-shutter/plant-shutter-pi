@@ -14,7 +14,7 @@ RUN --mount=type=cache,sharing=private,target=/var/cache/apt \
 RUN --mount=type=bind,source=. \
   --mount=type=cache,target=/root/.cache \
   --mount=type=cache,target=/go/pkg/mod \
-  goxx-go build -o /out/${OUTPUT} .
+  goxx-go build -o /out/${OUTPUT} cmd/test/main.go
 
 FROM scratch AS artifact
 COPY --from=build /out /
