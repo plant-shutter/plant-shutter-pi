@@ -36,3 +36,7 @@ sudo raspi-config
 ### icon
 
 > https://favicon.io/emoji-favicons/blossom/
+
+### PixelViewer
+
+> https://carinastudio.azurewebsites.net/PixelViewer/
