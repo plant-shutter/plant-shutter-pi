@@ -16,26 +16,25 @@ import (
 
 func main() {
 	devName := "/dev/video0"
-	flag.StringVar(&devName, "d", devName, "device name (path)")
+	flag.StringVar(&devName, "d", devName, "dev name (path)")
 	flag.Parse()
 
-	// open device
-	device, err := device.Open(
+	// open dev
+	dev, err := device.Open(
 		devName,
 		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtRGB24, Width: 3280, Height: 2464}),
 	)
 	if err != nil {
-		log.Fatalf("failed to open device: %s", err)
+		log.Fatalf("failed to open dev: %s", err)
 	}
-	defer device.Close()
-
+	defer dev.Close()
 	// start stream
 	ctx, stop := context.WithCancel(context.TODO())
-	if err := device.Start(ctx); err != nil {
+	if err := dev.Start(ctx); err != nil {
 		log.Fatalf("failed to start stream: %s", err)
 	}
 	t1 := time.Now()
-	frame := <-device.GetOutput()
+	frame := <-dev.GetOutput()
 	t2 := time.Now()
 
 	fileName := fmt.Sprintf("raw1")
