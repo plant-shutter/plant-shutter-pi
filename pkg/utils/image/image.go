@@ -4,16 +4,16 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
+	"log"
 	"os"
 )
 
-func RGBToRGBA(in, out []byte, width, height int) {
+func RGBToRGBA(in []byte, stride int, out []byte, width, height int) {
 	outStride := width * 4
-	inStride := len(in) / height
 
 	for i := 0; i < height; i++ {
 		oIndex := i * outStride
-		iIndex := i * inStride
+		iIndex := i * stride
 		for j := 0; j < width; j++ {
 			out[oIndex] = in[iIndex]
 			out[oIndex+1] = in[iIndex+1]
@@ -25,9 +25,10 @@ func RGBToRGBA(in, out []byte, width, height int) {
 	}
 }
 
-func DecodeRGB(data []byte, width, height int) image.Image {
+func DecodeRGB(data []byte, stride, width, height int) image.Image {
 	i := image.NewRGBA(image.Rect(0, 0, width, height))
-	RGBToRGBA(data, i.Pix, width, height)
+	log.Println(i.Stride)
+	RGBToRGBA(data, stride, i.Pix, width, height)
 
 	return i
 }
