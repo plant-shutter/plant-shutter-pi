@@ -7,9 +7,13 @@
 .
 └── root/
     ├── <project-name>/
-    │   ├── <image-name>
-    │   ├── ...
-    │   └── latest.json
+    │   ├── images/
+    │   │   ├── <image>.jpg
+    │   │   ├── ...
+    │   │   └── latest.json
+    │   └── videos/
+    │       ├── <name>.avi
+    │       └── ...
     ├── ...
     └── project.json
 ```
