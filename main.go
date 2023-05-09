@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -18,12 +17,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
-	"github.com/vladimirvivien/go4vl/v4l2"
 	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/utils"
-	"plant-shutter-pi/pkg/utils/image"
 	"plant-shutter-pi/pkg/webdav"
 )
 
@@ -86,35 +83,30 @@ func main() {
 }
 
 func runtimeVideo(c *gin.Context) {
-	format, err := v4l2.GetPixFormat(camera.Dev.Fd())
-	if err != nil {
-		log.Println(err)
-		return
-	}
 	mimeWriter := multipart.NewWriter(c.Writer)
 	c.Header("Content-Type", fmt.Sprintf("multipart/x-mixed-replace; boundary=%s", mimeWriter.Boundary()))
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Add("Content-Type", "image/jpeg")
 
-	for frame := range camera.GetOutput() {
-		partWriter, err := mimeWriter.CreatePart(partHeader)
-		if err != nil {
-			logger.Warnf("failed to create multi-part writer: %s", err)
-			return
-		}
-		i := image.DecodeRGB(frame, int(format.BytesPerLine), 640, 480)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		b := bytes.Buffer{}
-		if err := image.EncodeJPEG(i, &b, 95); err != nil {
-			log.Println(err)
-			return
-		}
-		if _, err := partWriter.Write(b.Bytes()); err != nil {
-			logger.Warnf("failed to write image: %s", err)
-		}
+	for _ = range camera.GetOutput() {
+		//partWriter, err := mimeWriter.CreatePart(partHeader)
+		//if err != nil {
+		//	logger.Warnf("failed to create multi-part writer: %s", err)
+		//	return
+		//}
+		//i := image.DecodeRGB(frame, int(format.BytesPerLine), 640, 480)
+		//if err != nil {
+		//	log.Println(err)
+		//	return
+		//}
+		//b := bytes.Buffer{}
+		//if err := image.EncodeJPEG(i, &b, 95); err != nil {
+		//	log.Println(err)
+		//	return
+		//}
+		//if _, err := partWriter.Write(b.Bytes()); err != nil {
+		//	logger.Warnf("failed to write image: %s", err)
+		//}
 	}
 }
 

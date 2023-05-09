@@ -6,6 +6,8 @@ import (
 
 	"github.com/vladimirvivien/go4vl/v4l2"
 
+	"plant-shutter-pi/pkg/utils/image"
+
 	"plant-shutter-pi/pkg/camera"
 )
 
@@ -16,34 +18,44 @@ func main() {
 	}
 	defer camera.Close()
 
-	//err = camera.Dev.SetPixFormat(v4l2.PixFormat{
+	// todo: test start -> close -> start -> close
+	//err = camera.dev.SetPixFormat(v4l2.PixFormat{
 	//	Width:  640,
 	//	Height: 480,
 	//})
 	//if err != nil {
-	//	log.Println(err)
-	//	return
+
 	//}
 
-	ctx, stop := context.WithCancel(context.Background())
-	defer stop()
-	err = camera.Start(ctx)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	log.Println("init")
-
-	format, err := v4l2.GetPixFormat(camera.Dev.Fd())
-	if err != nil {
+	if err = getImage("1.jpg"); err != nil {
 		log.Println(err)
 		return
 	}
-	log.Println("line: ", format.Width, format.Height, format.BytesPerLine, format.SizeImage)
+	if err = getImage("2.jpg"); err != nil {
+		log.Println(err)
+		return
+	}
+}
 
-	//f := <-camera.GetOutput()
-	//img := image.DecodeRGB(f, int(format.BytesPerLine), 1920, 1080)
-	//if err = image.EncodeJPEGFile(img, "t.jpg", 95); err != nil {
-	//	log.Println(err)
-	//}
+func getImage(path string) error {
+	format, err := v4l2.GetPixFormat(camera.GetDev().Fd())
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	if err = camera.Start(ctx); err != nil {
+		return err
+	}
+
+	log.Println("get output")
+
+	f := <-camera.GetOutput()
+	img := image.DecodeRGB(f, format.BytesPerLine, format.Width, format.Height)
+	if err = image.EncodeJPEGFile(img, path, 95); err != nil {
+		return err
+	}
+
+	return nil
 }

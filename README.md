@@ -40,3 +40,11 @@ sudo raspi-config
 ### PixelViewer
 
 > https://carinastudio.azurewebsites.net/PixelViewer/
+
+
+### Imager utils
+
+> https://github.com/disintegration/imaging
+> https://gist.github.com/logrusorgru/570d64fd6a051e0441014387b89286ca
+> https://github.com/nfnt/resize
+> https://github.com/icza/mjpeg

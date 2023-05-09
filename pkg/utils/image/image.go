@@ -8,13 +8,13 @@ import (
 	"os"
 )
 
-func RGBToRGBA(in []byte, stride int, out []byte, width, height int) {
+func RGBToRGBA(in []byte, stride uint32, out []byte, width, height uint32) {
 	outStride := width * 4
 
-	for i := 0; i < height; i++ {
+	for i := uint32(0); i < height; i++ {
 		oIndex := i * outStride
 		iIndex := i * stride
-		for j := 0; j < width; j++ {
+		for j := uint32(0); j < width; j++ {
 			out[oIndex] = in[iIndex]
 			out[oIndex+1] = in[iIndex+1]
 			out[oIndex+2] = in[iIndex+2]
@@ -25,8 +25,8 @@ func RGBToRGBA(in []byte, stride int, out []byte, width, height int) {
 	}
 }
 
-func DecodeRGB(data []byte, stride, width, height int) image.Image {
-	i := image.NewRGBA(image.Rect(0, 0, width, height))
+func DecodeRGB(data []byte, stride, width, height uint32) image.Image {
+	i := image.NewRGBA(image.Rect(0, 0, int(width), int(height)))
 	log.Println(i.Stride)
 	RGBToRGBA(data, stride, i.Pix, width, height)
 
