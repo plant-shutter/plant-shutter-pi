@@ -7,39 +7,44 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+
+	"plant-shutter-pi/pkg/storage/consts"
+	"plant-shutter-pi/pkg/storage/project"
+	"plant-shutter-pi/pkg/storage/util"
 )
 
-var (
-	storagePath string
-)
+type Storage struct {
+	rootDir string
+}
 
-func Init(path string) error {
+func New(path string) (*Storage, error) {
 	if path == "" {
-		return fmt.Errorf("storagePath can not be empty")
-	}
-	storagePath = path
-
-	if err := mkdirAll(storagePath); err != nil {
-		return err
+		return nil, fmt.Errorf("rootDir can not be empty")
 	}
 
-	if err := checkInitInfo(); err != nil {
-		return err
+	if err := util.MkdirAll(path); err != nil {
+		return nil, err
 	}
 
+	s := &Storage{rootDir: path}
+	if err := s.initInfoFile(); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func (s *Storage) Close() error {
 	return nil
 }
 
-func Close() error {
-	return nil
-}
-
-func ListProjects() ([]*Project, error) {
-	data, err := os.ReadFile(getProjectInfoPath())
+// ListProjects without bind
+func (s *Storage) ListProjects() ([]*project.Project, error) {
+	data, err := os.ReadFile(s.getProjectInfoPath())
 	if err != nil {
 		return nil, err
 	}
-	var list []*Project
+	var list []*project.Project
 
 	if err = json.Unmarshal(data, &list); err != nil {
 		return nil, err
@@ -48,49 +53,68 @@ func ListProjects() ([]*Project, error) {
 	return list, nil
 }
 
-func GetProject(name string) (*Project, error) {
-	list, err := ListProjects()
+func (s *Storage) GetProject(name string) (*project.Project, error) {
+	list, err := s.ListProjects()
 	if err != nil {
 		return nil, err
 	}
-	for _, project := range list {
-		if project.Name == name {
-			return project, nil
+	for _, p := range list {
+		if p.Name == name {
+			s.bindProject(p)
+			return p, nil
 		}
 	}
 
 	return nil, nil
 }
 
-func NewProject(name, info string) (*Project, error) {
+func (s *Storage) NewProject(name, info string, interval time.Duration) (*project.Project, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name can not be empty")
 	}
+	if interval < consts.MinInterval {
+		return nil, fmt.Errorf("interval %s less than %s", interval, consts.MinInterval)
+	}
 
-	list, err := ListProjects()
+	list, err := s.ListProjects()
 	if err != nil {
 		return nil, err
 	}
-	for _, project := range list {
-		if project.Name == name {
+	for _, p := range list {
+		if p.Name == name {
 			return nil, fmt.Errorf("project name already exists")
 		}
 	}
-	p := &Project{
-		Name:      name,
-		Info:      info,
-		CreatedAt: time.Now(),
-	}
-	if err := p.init(); err != nil {
+	p, err := project.New(name, info, interval)
+	if err != nil {
 		return nil, err
 	}
+	s.bindProject(p)
 	list = append(list, p)
 
-	return p, dumpProjectInfo(list)
+	return p, s.dump(list)
 }
 
-func dumpProjectInfo(list []*Project) error {
-	f, err := os.Create(getProjectInfoPath())
+func (s *Storage) UpdateProject(p *project.Project) error {
+	if p == nil {
+		return fmt.Errorf("project can not be nil")
+	}
+	list, err := s.ListProjects()
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(list); i++ {
+		if list[i].Name == p.Name {
+			list[i] = p
+			return s.dump(list)
+		}
+	}
+
+	return fmt.Errorf("project does not exist")
+}
+
+func (s *Storage) dump(list []*project.Project) error {
+	f, err := os.Create(s.getProjectInfoPath())
 	if err != nil {
 		return err
 	}
@@ -99,19 +123,19 @@ func dumpProjectInfo(list []*Project) error {
 	return json.NewEncoder(f).Encode(list)
 }
 
-func getProjectInfoPath() string {
-	return path.Join(storagePath, DefaultInfoFile)
+func (s *Storage) getProjectInfoPath() string {
+	return path.Join(s.rootDir, consts.DefaultInfoFile)
 }
 
-func checkInitInfo() error {
-	_, err := os.Stat(getProjectInfoPath())
+func (s *Storage) initInfoFile() error {
+	_, err := os.Stat(s.getProjectInfoPath())
 	if os.IsNotExist(err) {
-		return dumpProjectInfo(make([]*Project, 0))
+		return s.dump(make([]*project.Project, 0))
 	}
 
 	return err
 }
 
-//func getMD5(data []byte) string {
-//	return fmt.Sprintf("%x", md5.Sum(data))
-//}
+func (s *Storage) bindProject(p *project.Project) {
+	p.SetRootDir(s.rootDir)
+}

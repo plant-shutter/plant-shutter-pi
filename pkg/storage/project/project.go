@@ -1,4 +1,4 @@
-package storage
+package project
 
 import (
 	"fmt"
@@ -8,37 +8,53 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+
+	"plant-shutter-pi/pkg/storage/consts"
+	"plant-shutter-pi/pkg/storage/util"
 )
 
 type Project struct {
-	Name string `json:"name"`
-	Info string `json:"info,omitempty"`
+	Name     string        `json:"name"`
+	Info     string        `json:"info,omitempty"`
+	Interval time.Duration `json:"interval"`
 
 	CreatedAt time.Time `json:"createdAt"`
+
+	rootDir string
 }
 
 type ImagesInfo struct {
-	MaxNumber   int
-	LatestImage string
+	MaxNumber   int    `json:"maxNumber"`
+	LatestImage string `json:"latestImage"`
 
-	UpdateAt time.Time
+	UpdateAt time.Time `json:"updateAt"`
 }
 
-func (p *Project) init() error {
-	err := mkdirAll(
+func (p *Project) SetRootDir(dir string) {
+	p.rootDir = path.Join(dir, p.Name)
+}
+
+func New(name, info string, interval time.Duration) (*Project, error) {
+	p := &Project{
+		Name:      name,
+		Info:      info,
+		Interval:  interval,
+		CreatedAt: time.Now(),
+	}
+	err := util.MkdirAll(
 		p.getImageDirPath(),
 		p.getVideoDirPath(),
 	)
 	if err != nil {
-		return err
+		return p, err
 	}
 
 	if err = p.dumpImageInfo(&ImagesInfo{}); err != nil {
-		return err
+		return p, err
 	}
 	// todo: dump video info
 
-	return nil
+	return p, nil
 }
 
 func (p *Project) SaveImage(image []byte) error {
@@ -79,7 +95,7 @@ func (p *Project) ListImages() ([]string, error) {
 		if file.IsDir() {
 			continue
 		}
-		if !strings.HasSuffix(file.Name(), DefaultImageExt) {
+		if !strings.HasSuffix(file.Name(), consts.DefaultImageExt) {
 			continue
 		}
 		res = append(res, file.Name())
@@ -90,7 +106,8 @@ func (p *Project) ListImages() ([]string, error) {
 
 func (p *Project) generateImageName(image []byte, number int) string {
 	// generate filenames using md5?
-	return fmt.Sprintf("%s-%d%s", p.Name, number, DefaultImageExt)
+	// fmt.Sprintf("%x", md5.Sum(data))
+	return fmt.Sprintf("%s-%d%s", p.Name, number, consts.DefaultImageExt)
 }
 
 func (p *Project) loadImageInfo() (*ImagesInfo, error) {
@@ -113,31 +130,21 @@ func (p *Project) dumpImageInfo(info *ImagesInfo) error {
 		return err
 	}
 
-	return os.WriteFile(p.getImageInfoPath(), data, DefaultFilePerm)
+	return os.WriteFile(p.getImageInfoPath(), data, consts.DefaultFilePerm)
 }
 
 func (p *Project) GetImagePath(name string) string {
-	return path.Join(storagePath, p.Name, DefaultImagesDir, name)
+	return path.Join(p.rootDir, consts.DefaultImagesDir, name)
 }
 
 func (p *Project) getImageInfoPath() string {
-	return path.Join(storagePath, p.Name, DefaultImagesDir, DefaultInfoFile)
+	return path.Join(p.rootDir, consts.DefaultImagesDir, consts.DefaultInfoFile)
 }
 
 func (p *Project) getImageDirPath() string {
-	return path.Join(storagePath, p.Name, DefaultImagesDir)
+	return path.Join(p.rootDir, consts.DefaultImagesDir)
 }
 
 func (p *Project) getVideoDirPath() string {
-	return path.Join(storagePath, p.Name, DefaultImagesDir)
-}
-
-func mkdirAll(dirs ...string) error {
-	for _, d := range dirs {
-		err := os.MkdirAll(d, DefaultDirPerm)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return path.Join(p.rootDir, consts.DefaultImagesDir)
 }

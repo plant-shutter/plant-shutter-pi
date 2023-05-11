@@ -6,11 +6,11 @@ import (
 )
 
 func TestProject(t *testing.T) {
-	err := Init("tmp")
+	s, err := New("tmp")
 	checkErr(t, err)
-	defer Close()
+	defer s.Close()
 
-	project, err := GetProject("test")
+	project, err := s.GetProject("test")
 	checkErr(t, err)
 	log.Println(*project)
 

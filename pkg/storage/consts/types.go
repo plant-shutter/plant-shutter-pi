@@ -1,4 +1,8 @@
-package storage
+package consts
+
+import (
+	"time"
+)
 
 const (
 	DefaultImagesDir = "images"
@@ -9,4 +13,6 @@ const (
 
 	DefaultFilePerm = 0660
 	DefaultDirPerm  = 0750
+
+	MinInterval = time.Millisecond * 500
 )
