@@ -3,9 +3,9 @@ module plant-shutter-pi
 go 1.19
 
 require (
-	github.com/gabriel-vasile/mimetype v1.4.2
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.9.0
+	github.com/goccy/go-json v0.10.2
 	github.com/shirou/gopsutil/v3 v3.23.4
 	github.com/vincent-vinf/go-jsend v0.1.1
 	github.com/vladimirvivien/go4vl v0.0.5
@@ -21,7 +21,6 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.13.0 // indirect
-	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect

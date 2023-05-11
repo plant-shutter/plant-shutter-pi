@@ -10,12 +10,12 @@
     │   ├── images/
     │   │   ├── <image>.jpg
     │   │   ├── ...
-    │   │   └── latest.json
+    │   │   └── info.json
     │   └── videos/
     │       ├── <name>.avi
     │       └── ...
     ├── ...
-    └── project.json
+    └── info.json
 ```
 
 
