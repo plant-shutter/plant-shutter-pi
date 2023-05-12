@@ -60,7 +60,7 @@ func (s *Storage) GetProject(name string) (*project.Project, error) {
 	}
 	for _, p := range list {
 		if p.Name == name {
-			s.bindProject(p)
+			p.SetRootDir(s.rootDir)
 			return p, nil
 		}
 	}
@@ -69,13 +69,6 @@ func (s *Storage) GetProject(name string) (*project.Project, error) {
 }
 
 func (s *Storage) NewProject(name, info string, interval time.Duration) (*project.Project, error) {
-	if name == "" {
-		return nil, fmt.Errorf("name can not be empty")
-	}
-	if interval < consts.MinInterval {
-		return nil, fmt.Errorf("interval %s less than %s", interval, consts.MinInterval)
-	}
-
 	list, err := s.ListProjects()
 	if err != nil {
 		return nil, err
@@ -85,11 +78,10 @@ func (s *Storage) NewProject(name, info string, interval time.Duration) (*projec
 			return nil, fmt.Errorf("project name already exists")
 		}
 	}
-	p, err := project.New(name, info, interval)
+	p, err := project.New(name, info, interval, s.rootDir)
 	if err != nil {
 		return nil, err
 	}
-	s.bindProject(p)
 	list = append(list, p)
 
 	return p, s.dump(list)
@@ -105,12 +97,33 @@ func (s *Storage) UpdateProject(p *project.Project) error {
 	}
 	for i := 0; i < len(list); i++ {
 		if list[i].Name == p.Name {
+			p.CreatedAt = list[i].CreatedAt
 			list[i] = p
 			return s.dump(list)
 		}
 	}
 
 	return fmt.Errorf("project does not exist")
+}
+
+func (s *Storage) DeleteProject(name string) error {
+	list, err := s.ListProjects()
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(list); i++ {
+		if list[i].Name == name {
+			p := list[i]
+			p.SetRootDir(s.rootDir)
+			list = append(list[:i], list[i+1:]...)
+			if err = s.dump(list); err != nil {
+				return err
+			}
+			return p.Clear()
+		}
+	}
+
+	return nil
 }
 
 func (s *Storage) dump(list []*project.Project) error {
@@ -134,8 +147,4 @@ func (s *Storage) initInfoFile() error {
 	}
 
 	return err
-}
-
-func (s *Storage) bindProject(p *project.Project) {
-	p.SetRootDir(s.rootDir)
 }

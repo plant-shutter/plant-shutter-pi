@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -19,7 +18,9 @@ import (
 	"github.com/vincent-vinf/go-jsend"
 	"go.uber.org/zap"
 
-	"plant-shutter-pi/pkg/camera"
+	"plant-shutter-pi/pkg/ov"
+	"plant-shutter-pi/pkg/storage"
+	"plant-shutter-pi/pkg/storage/consts"
 	"plant-shutter-pi/pkg/utils"
 	"plant-shutter-pi/pkg/webdav"
 )
@@ -32,13 +33,15 @@ const (
 var (
 	webdavPort = flag.Int("webdav-port", 9998, "webdav port")
 	port       = flag.Int("port", 9999, "ui port")
-	imageDir   = flag.String("dir", "./plant-shutter", "")
+	storageDir = flag.String("dir", "./plant-shutter", "")
 	staticsDir = flag.String("statics", "./statics", "")
 
 	logger *zap.SugaredLogger
 
 	cancelWebdav context.CancelFunc
 	cancelLock   sync.Mutex
+
+	stg *storage.Storage
 )
 
 func init() {
@@ -48,13 +51,26 @@ func init() {
 
 func main() {
 	defer logger.Sync()
+	defer func() {
+		if cancelWebdav != nil {
+			cancelWebdav()
+		}
+	}()
+	var err error
 
+	// init storage
+	stg, err = storage.New(*storageDir)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer stg.Close()
+
+	// init gin
 	r := gin.New()
 	//gin.SetMode(gin.ReleaseMode)
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(utils.Cors())
-	// todo fix
 	if err := registerStaticsDir(r, *staticsDir, "/"); err != nil {
 		logger.Fatal(err)
 	}
@@ -64,22 +80,151 @@ func main() {
 
 	apiRouter := r.Group("/api")
 
-	apiRouter.GET("/device/runtime/video", runtimeVideo)
-	apiRouter.PUT("/device/webdav", ctlWebdav)
-	// todo call cancelWebdav()
+	deviceRouter := apiRouter.Group("/device")
+	deviceRouter.GET("/runtime/video", runtimeVideo)
+	deviceRouter.PUT("/webdav", ctlWebdav)
 
-	if err := camera.Init(camera.DefaultDevice); err != nil {
-		logger.Fatal(err)
-	}
-	defer camera.Close()
+	projectRouter := apiRouter.Group("/project")
+	projectRouter.GET("/:name", getProject)
+	projectRouter.GET("", listProject)
+	projectRouter.POST("", createProject)
+	projectRouter.PUT("", updateProject)
+	projectRouter.DELETE("/:name", deleteProject)
 
-	ctx, stop := context.WithCancel(context.Background())
-	defer stop()
-	if err := camera.Start(ctx); err != nil {
-		log.Fatalln(err)
-	}
+	projectRouter.GET("/:name/images/latest", projectLatestImage)
+	projectRouter.GET("/:name/images/:name")
+	projectRouter.GET("/:name/images")
 
 	utils.ListenAndServe(r, *port)
+}
+
+func getProject(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(p))
+	return
+}
+
+func listProject(c *gin.Context) {
+	projects, err := stg.ListProjects()
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(projects))
+	return
+}
+
+func createProject(c *gin.Context) {
+	var p ov.Project
+	err := c.Bind(&p)
+	if err != nil {
+		return
+	}
+	if p.Interval < consts.MinInterval {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", p.Interval, consts.MinInterval)))
+		return
+	}
+
+	pj, err := stg.GetProject(p.Name)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if pj != nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project already exists"))
+		return
+	}
+
+	pj, err = stg.NewProject(p.Name, p.Info, p.Interval)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(pj))
+	return
+}
+
+func updateProject(c *gin.Context) {
+	var p ov.Project
+	err := c.Bind(&p)
+	if err != nil {
+		return
+	}
+
+	if p.Interval < consts.MinInterval {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", p.Interval, consts.MinInterval)))
+		return
+	}
+
+	pj, err := stg.GetProject(p.Name)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if pj == nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project does not exist"))
+		return
+	}
+	pj.Info = p.Info
+	pj.Interval = p.Interval
+
+	err = stg.UpdateProject(pj)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(pj))
+	return
+}
+
+func deleteProject(c *gin.Context) {
+	name := c.Param("name")
+
+	pj, err := stg.GetProject(name)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if pj == nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project does not exist"))
+		return
+	}
+
+	if err = stg.DeleteProject(name); err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("delete project %s success", name)))
+	return
+}
+
+func projectLatestImage(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	image, err := p.LatestImageName()
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(image))
+	return
 }
 
 func runtimeVideo(c *gin.Context) {
@@ -88,26 +233,26 @@ func runtimeVideo(c *gin.Context) {
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Add("Content-Type", "image/jpeg")
 
-	for _ = range camera.GetOutput() {
-		//partWriter, err := mimeWriter.CreatePart(partHeader)
-		//if err != nil {
-		//	logger.Warnf("failed to create multi-part writer: %s", err)
-		//	return
-		//}
-		//i := image.DecodeRGB(frame, int(format.BytesPerLine), 640, 480)
-		//if err != nil {
-		//	log.Println(err)
-		//	return
-		//}
-		//b := bytes.Buffer{}
-		//if err := image.EncodeJPEG(i, &b, 95); err != nil {
-		//	log.Println(err)
-		//	return
-		//}
-		//if _, err := partWriter.Write(b.Bytes()); err != nil {
-		//	logger.Warnf("failed to write image: %s", err)
-		//}
-	}
+	//for _ = range camera.GetOutput() {
+	//partWriter, err := mimeWriter.CreatePart(partHeader)
+	//if err != nil {
+	//	logger.Warnf("failed to create multi-part writer: %s", err)
+	//	return
+	//}
+	//i := image.DecodeRGB(frame, int(format.BytesPerLine), 640, 480)
+	//if err != nil {
+	//	log.Println(err)
+	//	return
+	//}
+	//b := bytes.Buffer{}
+	//if err := image.EncodeJPEG(i, &b, 95); err != nil {
+	//	log.Println(err)
+	//	return
+	//}
+	//if _, err := partWriter.Write(b.Bytes()); err != nil {
+	//	logger.Warnf("failed to write image: %s", err)
+	//}
+	//}
 }
 
 func ctlWebdav(c *gin.Context) {
@@ -130,7 +275,7 @@ func startWebdav(c *gin.Context) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	webdav.Serve(ctx, *webdavPort, *imageDir, logger)
+	webdav.Serve(ctx, *webdavPort, *storageDir, logger)
 	cancelWebdav = cancel
 	//url := location.Get(c)
 	c.JSON(http.StatusOK, jsend.Success(c.Request.Host))
@@ -168,4 +313,8 @@ func registerStaticsDir(group gin.IRoutes, dir, relativeGroup string) error {
 		}
 		return nil
 	})
+}
+
+func internalErr(c *gin.Context, err error) {
+	c.JSON(http.StatusInternalServerError, jsend.SimpleErr(err.Error()))
 }

@@ -34,13 +34,14 @@ func (p *Project) SetRootDir(dir string) {
 	p.rootDir = path.Join(dir, p.Name)
 }
 
-func New(name, info string, interval time.Duration) (*Project, error) {
+func New(name, info string, interval time.Duration, rootDir string) (*Project, error) {
 	p := &Project{
 		Name:      name,
 		Info:      info,
 		Interval:  interval,
 		CreatedAt: time.Now(),
 	}
+	p.SetRootDir(rootDir)
 	err := util.MkdirAll(
 		p.getImageDirPath(),
 		p.getVideoDirPath(),
@@ -104,6 +105,10 @@ func (p *Project) ListImages() ([]string, error) {
 	return res, nil
 }
 
+func (p *Project) Clear() error {
+	return os.RemoveAll(p.rootDir)
+}
+
 func (p *Project) generateImageName(image []byte, number int) string {
 	// generate filenames using md5?
 	// fmt.Sprintf("%x", md5.Sum(data))
@@ -146,5 +151,5 @@ func (p *Project) getImageDirPath() string {
 }
 
 func (p *Project) getVideoDirPath() string {
-	return path.Join(p.rootDir, consts.DefaultImagesDir)
+	return path.Join(p.rootDir, consts.DefaultVideosDir)
 }
