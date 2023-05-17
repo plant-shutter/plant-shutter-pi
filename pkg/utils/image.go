@@ -1,4 +1,4 @@
-package image
+package utils
 
 import (
 	"image"
@@ -8,9 +8,10 @@ import (
 	"os"
 )
 
-func RGBToRGBA(in []byte, stride int, out []byte, width, height int) {
+func rgbToRGBA(in []byte, out []byte, width, height int) {
 	outStride := width * 4
-
+	stride := len(in) / height
+	log.Println(len(in), stride)
 	for i := 0; i < height; i++ {
 		oIndex := i * outStride
 		iIndex := i * stride
@@ -25,10 +26,9 @@ func RGBToRGBA(in []byte, stride int, out []byte, width, height int) {
 	}
 }
 
-func DecodeRGB(data []byte, stride, width, height int) image.Image {
+func DecodeRGB(data []byte, width, height int) image.Image {
 	i := image.NewRGBA(image.Rect(0, 0, width, height))
-	log.Println(i.Stride)
-	RGBToRGBA(data, stride, i.Pix, width, height)
+	rgbToRGBA(data, i.Pix, width, height)
 
 	return i
 }

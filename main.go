@@ -23,7 +23,6 @@ import (
 
 	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/utils"
-	"plant-shutter-pi/pkg/utils/image"
 	"plant-shutter-pi/pkg/webdav"
 )
 
@@ -102,13 +101,13 @@ func runtimeVideo(c *gin.Context) {
 			logger.Warnf("failed to create multi-part writer: %s", err)
 			return
 		}
-		i := image.DecodeRGB(frame, int(format.BytesPerLine), 640, 480)
+		i := utils.DecodeRGB(frame, int(format.BytesPerLine), 640, 480)
 		if err != nil {
 			log.Println(err)
 			return
 		}
 		b := bytes.Buffer{}
-		if err := image.EncodeJPEG(i, &b, 95); err != nil {
+		if err := utils.EncodeJPEG(i, &b, 95); err != nil {
 			log.Println(err)
 			return
 		}

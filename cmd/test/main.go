@@ -5,13 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"image"
-	"image/png"
+	"image/jpeg"
 	"log"
 	"os"
-	"time"
 
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
+
+	"plant-shutter-pi/pkg/utils"
 )
 
 func main() {
@@ -22,43 +23,40 @@ func main() {
 	// open dev
 	dev, err := device.Open(
 		devName,
-		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtRGB24, Width: 3280, Height: 2464}),
+		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtRGB24, Width: 640, Height: 480}),
 	)
 	if err != nil {
 		log.Fatalf("failed to open dev: %s", err)
 	}
 	defer dev.Close()
+
+	format, err := v4l2.GetPixFormat(dev.Fd())
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
 	// start stream
 	ctx, stop := context.WithCancel(context.TODO())
 	if err := dev.Start(ctx); err != nil {
 		log.Fatalf("failed to start stream: %s", err)
 	}
-	t1 := time.Now()
 	frame := <-dev.GetOutput()
-	t2 := time.Now()
 
-	fileName := fmt.Sprintf("raw1")
-	file, err := os.Create(fileName)
+	err = os.WriteFile("raw.rgb", frame, 0660)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if _, err := file.Write(frame); err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Saved file: %s", fileName)
-	if err := file.Close(); err != nil {
-		log.Fatal(err)
-	}
-	t3 := time.Now()
 
-	img := image.NewRGBA(image.Rect(0, 0, 3280, 2464))
-	img.Pix = frame
+	fmt.Println("DecodeYUYV.")
 
-	if err := writeImage(img, "out.png"); err != nil {
+	log.Println(int(format.BytesPerLine), int(format.Width), int(format.Height))
+	img := utils.DecodeRGB(frame, int(format.BytesPerLine), int(format.Width), int(format.Height))
+	fmt.Println("DecodeYUYV.end")
+
+	if err := writeImage(img, "out.jpg"); err != nil {
 		log.Println(err)
 	}
-	log.Println(t2.Sub(t1))
-	log.Println(t3.Sub(t2))
 
 	stop() // stop capture
 	fmt.Println("Done.")
@@ -71,5 +69,5 @@ func writeImage(img image.Image, name string) error {
 	}
 	defer fd.Close()
 
-	return png.Encode(fd, img)
+	return jpeg.Encode(fd, img, nil)
 }
