@@ -16,43 +16,58 @@ const (
 
 var (
 	DefaultPixelFormat = v4l2.PixelFmtRGB24
+	pixFormat          v4l2.PixFormat
 
-	Dev  *device.Device
+	dev  *device.Device
 	lock sync.Mutex
 )
 
 func Init(devName string) error {
 	var err error
-	Dev, err = device.Open(
+	dev, err = device.Open(
 		devName,
 		device.WithFPS(DefaultFPS),
 	)
+	pixFormat, err = v4l2.GetPixFormat(dev.Fd())
+	if err != nil {
+		return err
+	}
 
 	return err
 }
 
+func GetDev() *device.Device {
+	return dev
+}
+
 func SetPixFormat(width, height int) error {
-	return Dev.SetPixFormat(v4l2.PixFormat{
+	err := dev.SetPixFormat(v4l2.PixFormat{
 		Width:  uint32(width),
 		Height: uint32(height),
 		Field:  v4l2.FieldNone,
 	})
+	if err != nil {
+		return err
+	}
+	pixFormat, err = v4l2.GetPixFormat(dev.Fd())
+
+	return err
 }
 
 func Start(ctx context.Context) error {
-	return Dev.Start(ctx)
+	return dev.Start(ctx)
 }
 
 func Close() error {
-	return Dev.Close()
+	return dev.Close()
 }
 
 func GetOutput() <-chan []byte {
-	return Dev.GetOutput()
+	return dev.GetOutput()
 }
 
 func getSizes() error {
-	frameSizes, err := v4l2.GetFormatFrameSizes(Dev.Fd(), DefaultPixelFormat)
+	frameSizes, err := v4l2.GetFormatFrameSizes(dev.Fd(), DefaultPixelFormat)
 	if err != nil {
 		return err
 	}
@@ -61,8 +76,4 @@ func getSizes() error {
 	}
 
 	return nil
-}
-
-func getFPS() {
-	Dev.GetFrameRate()
 }
