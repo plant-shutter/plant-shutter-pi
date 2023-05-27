@@ -3,10 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"plant-shutter-pi/pkg/utils"
 
 	"github.com/vladimirvivien/go4vl/v4l2"
-
-	"plant-shutter-pi/pkg/utils/image"
 
 	"plant-shutter-pi/pkg/camera"
 )
@@ -52,8 +51,8 @@ func getImage(path string) error {
 	log.Println("get output")
 
 	f := <-camera.GetOutput()
-	img := image.DecodeRGB(f, format.BytesPerLine, format.Width, format.Height)
-	if err = image.EncodeJPEGFile(img, path, 95); err != nil {
+	img := utils.DecodeRGB(f, int(format.Width), int(format.Height))
+	if err = utils.EncodeJPEGFile(img, path, 95); err != nil {
 		return err
 	}
 

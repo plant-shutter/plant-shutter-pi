@@ -2,7 +2,6 @@ package camera
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	"github.com/vladimirvivien/go4vl/device"
@@ -16,7 +15,6 @@ const (
 
 var (
 	DefaultPixelFormat = v4l2.PixelFmtRGB24
-	pixFormat          v4l2.PixFormat
 
 	dev  *device.Device
 	lock sync.Mutex
@@ -28,7 +26,6 @@ func Init(devName string) error {
 		devName,
 		device.WithFPS(DefaultFPS),
 	)
-	pixFormat, err = v4l2.GetPixFormat(dev.Fd())
 	if err != nil {
 		return err
 	}
@@ -41,17 +38,11 @@ func GetDev() *device.Device {
 }
 
 func SetPixFormat(width, height int) error {
-	err := dev.SetPixFormat(v4l2.PixFormat{
+	return dev.SetPixFormat(v4l2.PixFormat{
 		Width:  uint32(width),
 		Height: uint32(height),
 		Field:  v4l2.FieldNone,
 	})
-	if err != nil {
-		return err
-	}
-	pixFormat, err = v4l2.GetPixFormat(dev.Fd())
-
-	return err
 }
 
 func Start(ctx context.Context) error {
@@ -64,16 +55,4 @@ func Close() error {
 
 func GetOutput() <-chan []byte {
 	return dev.GetOutput()
-}
-
-func getSizes() error {
-	frameSizes, err := v4l2.GetFormatFrameSizes(dev.Fd(), DefaultPixelFormat)
-	if err != nil {
-		return err
-	}
-	for _, size := range frameSizes {
-		log.Println(size)
-	}
-
-	return nil
 }
