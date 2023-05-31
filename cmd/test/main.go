@@ -17,18 +17,22 @@ var (
 
 func main() {
 	sizes := []Size{
-		//{
-		//	Width:  640,
-		//	Height: 480,
-		//},
-		//{
-		//	Width:  1920,
-		//	Height: 1080,
-		//},
-		//{
-		//	Width:  2048,
-		//	Height: 1080,
-		//},
+		{
+			Width:  640,
+			Height: 480,
+		},
+		{
+			Width:  1280,
+			Height: 720,
+		},
+		{
+			Width:  1920,
+			Height: 1080,
+		},
+		{
+			Width:  2048,
+			Height: 1080,
+		},
 		{
 			Width:  3280,
 			Height: 2464,
@@ -56,7 +60,9 @@ func shot(width, height int) error {
 		return err
 	}
 	defer dev.Close()
-
+	if err = setDevice(dev); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 	// start stream
@@ -64,7 +70,7 @@ func shot(width, height int) error {
 		return err
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 1; i++ {
 		t1 := time.Now()
 		frame := <-dev.GetOutput()
 		t2 := time.Now()
@@ -78,6 +84,28 @@ func shot(width, height int) error {
 		log.Println(t2.Sub(t1), t4.Sub(t2), t4.Sub(t1))
 	}
 	log.Println("end")
+
+	return nil
+}
+
+func setDevice(dev *device.Device) error {
+	ctrls, err := v4l2.QueryAllExtControls(dev.Fd())
+	if err != nil {
+		return err
+	}
+
+	for _, ctrl := range ctrls {
+		if ctrl.Name == "Compression Quality" {
+			if err = dev.SetControlValue(ctrl.ID, 95); err != nil {
+				return err
+			}
+			//control, err := dev.GetControl(ctrl.ID)
+			//if err != nil {
+			//	return err
+			//}
+			//log.Println(control.Value)
+		}
+	}
 
 	return nil
 }
