@@ -9,6 +9,8 @@ import (
 
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
+
+	"plant-shutter-pi/pkg/camera"
 )
 
 var (
@@ -60,7 +62,7 @@ func shot(width, height int) error {
 		return err
 	}
 	defer dev.Close()
-	if err = setDevice(dev); err != nil {
+	if err = camera.InitControls(dev); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancel(context.TODO())
@@ -88,24 +90,21 @@ func shot(width, height int) error {
 	return nil
 }
 
-func setDevice(dev *device.Device) error {
-	ctrls, err := v4l2.QueryAllExtControls(dev.Fd())
-	if err != nil {
-		return err
-	}
+//func setDevice(dev *device.Device) error {
 
-	for _, ctrl := range ctrls {
-		if ctrl.Name == "Compression Quality" {
-			if err = dev.SetControlValue(ctrl.ID, 95); err != nil {
-				return err
-			}
-			//control, err := dev.GetControl(ctrl.ID)
-			//if err != nil {
-			//	return err
-			//}
-			//log.Println(control.Value)
-		}
-	}
-
-	return nil
-}
+//
+//	for _, ctrl := range ctrls {
+//		if ctrl.Name == "Compression Quality" {
+//			if err = dev.SetControlValue(ctrl.ID, 95); err != nil {
+//				return err
+//			}
+//			//control, err := dev.GetControl(ctrl.ID)
+//			//if err != nil {
+//			//	return err
+//			//}
+//			//log.Println(control.Value)
+//		}
+//	}
+//
+//	return nil
+//}

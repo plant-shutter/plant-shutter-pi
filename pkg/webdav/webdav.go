@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
-
 	"golang.org/x/net/webdav"
+
+	"plant-shutter-pi/pkg/utils"
 )
 
-func Serve(ctx context.Context, port int, dir string, logger *zap.SugaredLogger) {
+func Serve(ctx context.Context, port int, dir string) {
+	logger := utils.GetLogger()
+
 	h := &webdav.Handler{
 		FileSystem: webdav.Dir(dir),
 		LockSystem: webdav.NewMemLS(),

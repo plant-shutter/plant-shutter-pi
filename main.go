@@ -16,7 +16,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
-	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/ov"
 	"plant-shutter-pi/pkg/storage"
@@ -36,8 +35,6 @@ var (
 	storageDir = flag.String("dir", "./plant-shutter", "")
 	staticsDir = flag.String("statics", "./statics", "")
 
-	logger *zap.SugaredLogger
-
 	cancelWebdav context.CancelFunc
 	cancelLock   sync.Mutex
 
@@ -46,10 +43,10 @@ var (
 
 func init() {
 	flag.Parse()
-	logger = utils.NewLogger()
 }
 
 func main() {
+	logger := utils.GetLogger()
 	defer logger.Sync()
 	defer func() {
 		if cancelWebdav != nil {
@@ -275,7 +272,7 @@ func startWebdav(c *gin.Context) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	webdav.Serve(ctx, *webdavPort, *storageDir, logger)
+	webdav.Serve(ctx, *webdavPort, *storageDir)
 	cancelWebdav = cancel
 	//url := location.Get(c)
 	c.JSON(http.StatusOK, jsend.Success(c.Request.Host))

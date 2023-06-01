@@ -5,6 +5,18 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+var (
+	logger *zap.SugaredLogger
+)
+
+func init() {
+	logger = NewLogger()
+}
+
+func GetLogger() *zap.SugaredLogger {
+	return logger
+}
+
 func NewLogger() *zap.SugaredLogger {
 	cfg := zap.Config{
 		Level:    zap.NewAtomicLevelAt(zapcore.InfoLevel),

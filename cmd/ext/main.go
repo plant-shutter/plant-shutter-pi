@@ -53,5 +53,4 @@ func printControl(ctrl v4l2.Control) {
 			fmt.Printf("\t(%d) Menu %s: [%d]\n", m.Index, m.Name, m.Value)
 		}
 	}
-
 }
