@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -13,9 +14,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
+	"github.com/vladimirvivien/go4vl/device"
+	"github.com/vladimirvivien/go4vl/v4l2"
+	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/ov"
 	"plant-shutter-pi/pkg/storage"
@@ -39,14 +44,18 @@ var (
 	cancelLock   sync.Mutex
 
 	stg *storage.Storage
+
+	logger *zap.SugaredLogger
+
+	frames <-chan []byte
 )
 
 func init() {
+	logger = utils.GetLogger()
 	flag.Parse()
 }
 
 func main() {
-	logger := utils.GetLogger()
 	defer logger.Sync()
 	defer func() {
 		if cancelWebdav != nil {
@@ -78,7 +87,7 @@ func main() {
 	apiRouter := r.Group("/api")
 
 	deviceRouter := apiRouter.Group("/device")
-	deviceRouter.GET("/runtime/video", runtimeVideo)
+	deviceRouter.GET("/realtime/video", realtimeVideo)
 	deviceRouter.PUT("/webdav", ctlWebdav)
 
 	projectRouter := apiRouter.Group("/project")
@@ -91,6 +100,23 @@ func main() {
 	projectRouter.GET("/:name/images/latest", projectLatestImage)
 	projectRouter.GET("/:name/images/:name")
 	projectRouter.GET("/:name/images")
+
+	devName := "/dev/video0"
+	camera, err := device.Open(
+		devName,
+		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
+	)
+
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer camera.Close()
+
+	if err := camera.Start(context.TODO()); err != nil {
+		logger.Fatal(err)
+	}
+
+	frames = camera.GetOutput()
 
 	utils.ListenAndServe(r, *port)
 }
@@ -224,32 +250,27 @@ func projectLatestImage(c *gin.Context) {
 	return
 }
 
-func runtimeVideo(c *gin.Context) {
+func realtimeVideo(c *gin.Context) {
 	mimeWriter := multipart.NewWriter(c.Writer)
 	c.Header("Content-Type", fmt.Sprintf("multipart/x-mixed-replace; boundary=%s", mimeWriter.Boundary()))
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Add("Content-Type", "image/jpeg")
 
-	//for _ = range camera.GetOutput() {
-	//partWriter, err := mimeWriter.CreatePart(partHeader)
-	//if err != nil {
-	//	logger.Warnf("failed to create multi-part writer: %s", err)
-	//	return
-	//}
-	//i := image.DecodeRGB(frame, int(format.BytesPerLine), 640, 480)
-	//if err != nil {
-	//	log.Println(err)
-	//	return
-	//}
-	//b := bytes.Buffer{}
-	//if err := image.EncodeJPEG(i, &b, 95); err != nil {
-	//	log.Println(err)
-	//	return
-	//}
-	//if _, err := partWriter.Write(b.Bytes()); err != nil {
-	//	logger.Warnf("failed to write image: %s", err)
-	//}
-	//}
+	start := time.Now()
+	for frame := range frames {
+		end := time.Now()
+		log.Println(end.Sub(start))
+		start = end
+		partWriter, err := mimeWriter.CreatePart(partHeader)
+		if err != nil {
+			log.Printf("failed to create multi-part writer: %s", err)
+			return
+		}
+
+		if _, err := partWriter.Write(frame); err != nil {
+			log.Printf("failed to write image: %s", err)
+		}
+	}
 }
 
 func ctlWebdav(c *gin.Context) {

@@ -52,9 +52,7 @@ func main() {
 		devName,
 		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
 	)
-	if err = setDevice(camera); err != nil {
-		log.Fatalf("failed to open device: %s", err)
-	}
+
 	if err != nil {
 		log.Fatalf("failed to open device: %s", err)
 	}
@@ -69,26 +67,4 @@ func main() {
 	log.Printf("Serving images: [%s/stream]", port)
 	http.HandleFunc("/stream", imageServ)
 	log.Fatal(http.ListenAndServe(port, nil))
-}
-
-func setDevice(dev *device.Device) error {
-	ctrls, err := v4l2.QueryAllExtControls(dev.Fd())
-	if err != nil {
-		return err
-	}
-
-	for _, ctrl := range ctrls {
-		if ctrl.Name == "Compression Quality" {
-			if err = dev.SetControlValue(ctrl.ID, 90); err != nil {
-				return err
-			}
-			//control, err := dev.GetControl(ctrl.ID)
-			//if err != nil {
-			//	return err
-			//}
-			//log.Println(control.Value)
-		}
-	}
-
-	return nil
 }
