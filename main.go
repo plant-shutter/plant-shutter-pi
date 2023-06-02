@@ -18,6 +18,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
+	"github.com/vladimirvivien/go4vl/device"
+	"github.com/vladimirvivien/go4vl/v4l2"
 	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/ov"
@@ -105,28 +107,27 @@ func main() {
 	projectRouter.GET("/:name/images/:name")
 	projectRouter.GET("/:name/images")
 
-	//devName := "/dev/video0"
-	//camera, err := device.Open(
-	//	devName,
-	//	device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
-	//)
-	//
-	//if err != nil {
-	//	logger.Fatal(err)
-	//}
-	//defer camera.Close()
-	//
-	//if err := camera.Start(context.TODO()); err != nil {
-	//	logger.Fatal(err)
-	//}
-	//
-	//frames = camera.GetOutput()
+	devName := "/dev/video0"
+	camera, err := device.Open(
+		devName,
+		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
+	)
+
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer camera.Close()
+
+	if err := camera.Start(context.TODO()); err != nil {
+		logger.Fatal(err)
+	}
+
+	frames = camera.GetOutput()
 
 	utils.ListenAndServe(r, *port)
 }
 
 func listConfig(c *gin.Context) {
-
 }
 
 func getProject(c *gin.Context) {

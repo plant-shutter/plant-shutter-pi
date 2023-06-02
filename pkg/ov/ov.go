@@ -1,8 +1,9 @@
 package ov
 
 import (
-	"github.com/vladimirvivien/go4vl/v4l2"
 	"time"
+
+	"github.com/vladimirvivien/go4vl/v4l2"
 )
 
 type Project struct {
@@ -12,17 +13,18 @@ type Project struct {
 }
 
 type Config struct {
-	ID    v4l2.CtrlID
-	Value v4l2.CtrlValue
-	Name  string
+	ID    v4l2.CtrlID    `json:"ID,omitempty"`
+	Value v4l2.CtrlValue `json:"value,omitempty"`
+	Name  string         `json:"name,omitempty"`
 
-	IsMenu bool
+	IsMenu bool `json:"isMenu,omitempty"`
 
-	MenuItems []string
+	// map[index]name
+	MenuItems map[uint32]string `json:"menuItems,omitempty"`
 
-	Minimum int32
-	Maximum int32
-	Step    int32
+	Minimum int32 `json:"minimum,omitempty"`
+	Maximum int32 `json:"maximum,omitempty"`
+	Step    int32 `json:"step,omitempty"`
 }
 
 type UpdateConfig struct {
