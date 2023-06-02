@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -48,9 +49,16 @@ func printControl(ctrl v4l2.Control) {
 		if err != nil {
 			return
 		}
-
-		for _, m := range menus {
-			fmt.Printf("\t(%d) Menu %s: [%d]\n", m.Index, m.Name, m.Value)
+		if ctrl.Type == v4l2.CtrlTypeIntegerMenu {
+			for _, m := range menus {
+				d := int64(binary.BigEndian.Uint64([]byte(m.Name)))
+				fmt.Printf("\t(%d) Menu %d: [%d]\n", m.Index, d, m.Value)
+			}
+		} else if ctrl.Type == v4l2.CtrlTypeMenu {
+			for _, m := range menus {
+				fmt.Printf("\t(%d) Menu %s: [%d]\n", m.Index, m.Name, m.Value)
+			}
 		}
+
 	}
 }

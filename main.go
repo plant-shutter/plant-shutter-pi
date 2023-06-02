@@ -18,8 +18,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
-	"github.com/vladimirvivien/go4vl/device"
-	"github.com/vladimirvivien/go4vl/v4l2"
 	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/ov"
@@ -89,6 +87,12 @@ func main() {
 	deviceRouter := apiRouter.Group("/device")
 	deviceRouter.GET("/realtime/video", realtimeVideo)
 	deviceRouter.PUT("/webdav", ctlWebdav)
+	deviceRouter.GET("/config", listConfig)
+
+	// 获取配置信息，包括中文名，最大最小值，步长，当前值，菜单，ID
+	// 更新配置 ID，值 支持List
+	// 预览分辨率选择
+	// 测试 start-close-start
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
@@ -101,24 +105,28 @@ func main() {
 	projectRouter.GET("/:name/images/:name")
 	projectRouter.GET("/:name/images")
 
-	devName := "/dev/video0"
-	camera, err := device.Open(
-		devName,
-		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
-	)
-
-	if err != nil {
-		logger.Fatal(err)
-	}
-	defer camera.Close()
-
-	if err := camera.Start(context.TODO()); err != nil {
-		logger.Fatal(err)
-	}
-
-	frames = camera.GetOutput()
+	//devName := "/dev/video0"
+	//camera, err := device.Open(
+	//	devName,
+	//	device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
+	//)
+	//
+	//if err != nil {
+	//	logger.Fatal(err)
+	//}
+	//defer camera.Close()
+	//
+	//if err := camera.Start(context.TODO()); err != nil {
+	//	logger.Fatal(err)
+	//}
+	//
+	//frames = camera.GetOutput()
 
 	utils.ListenAndServe(r, *port)
+}
+
+func listConfig(c *gin.Context) {
+
 }
 
 func getProject(c *gin.Context) {
