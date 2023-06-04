@@ -22,6 +22,7 @@ import (
 	"github.com/vladimirvivien/go4vl/v4l2"
 	"go.uber.org/zap"
 
+	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/ov"
 	"plant-shutter-pi/pkg/storage"
 	"plant-shutter-pi/pkg/storage/consts"
@@ -37,7 +38,7 @@ const (
 var (
 	webdavPort = flag.Int("webdav-port", 9998, "webdav port")
 	port       = flag.Int("port", 9999, "ui port")
-	storageDir = flag.String("dir", "./plant-shutter", "")
+	storageDir = flag.String("dir", "./plant-project", "")
 	staticsDir = flag.String("statics", "./statics", "")
 
 	cancelWebdav context.CancelFunc
@@ -48,6 +49,8 @@ var (
 	logger *zap.SugaredLogger
 
 	frames <-chan []byte
+
+	dev *device.Device
 )
 
 func init() {
@@ -90,6 +93,7 @@ func main() {
 	deviceRouter.GET("/realtime/video", realtimeVideo)
 	deviceRouter.PUT("/webdav", ctlWebdav)
 	deviceRouter.GET("/config", listConfig)
+	deviceRouter.PUT("/config", updateConfig)
 
 	// 获取配置信息，包括中文名，最大最小值，步长，当前值，菜单，ID
 	// 更新配置 ID，值 支持List
@@ -108,7 +112,7 @@ func main() {
 	projectRouter.GET("/:name/images")
 
 	devName := "/dev/video0"
-	camera, err := device.Open(
+	dev, err = device.Open(
 		devName,
 		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
 	)
@@ -116,18 +120,41 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	defer camera.Close()
-
-	if err := camera.Start(context.TODO()); err != nil {
+	defer dev.Close()
+	err = camera.InitControls(dev)
+	if err != nil {
 		logger.Fatal(err)
 	}
 
-	frames = camera.GetOutput()
+	if err := dev.Start(context.TODO()); err != nil {
+		logger.Fatal(err)
+	}
+
+	frames = dev.GetOutput()
 
 	utils.ListenAndServe(r, *port)
 }
 
 func listConfig(c *gin.Context) {
+	configs, err := camera.GetKnownCtrlConfigs(dev)
+	if err != nil {
+		internalErr(c, err)
+	}
+	c.JSON(http.StatusOK, jsend.Success(configs))
+}
+
+func updateConfig(c *gin.Context) {
+	cfg := &ov.UpdateConfig{}
+	err := c.Bind(cfg)
+	if err != nil {
+		return
+	}
+	err = dev.SetControlValue(cfg.ID, cfg.Value)
+	if err != nil {
+		internalErr(c, err)
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("set ctrl(%d) to %d", cfg.ID, cfg.Value)))
 }
 
 func getProject(c *gin.Context) {
