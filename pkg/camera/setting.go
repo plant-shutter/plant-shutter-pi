@@ -19,11 +19,11 @@ func init() {
 
 func InitControls(dev *device.Device) error {
 	ctrlSettings := map[v4l2.CtrlID]v4l2.CtrlValue{
-		10094849: 1,  // Auto Exposure: Auto Mode
-		10094868: 0,  // White Balance, Auto & Preset: Manual
-		10291459: 90, // Compression Quality: 90
-		10094872: 0,  // ISO Sensitivity, Auto: Manual
-		9963807:  15, // Color Effects: Set Cb/Cr
+		//10094849: 1,  // Auto Exposure: Auto Mode
+		//10094868: 0,  // White Balance, Auto & Preset: Manual
+		//10291459: 90, // Compression Quality: 90
+		//10094872: 0,  // ISO Sensitivity, Auto: Manual
+		//9963807:  0,  // Color Effects: Set Cb/Cr
 	}
 	for k, v := range ctrlSettings {
 		if err := dev.SetControlValue(k, v); err != nil {
@@ -36,6 +36,11 @@ func InitControls(dev *device.Device) error {
 
 func GetKnownCtrlConfigs(dev *device.Device) ([]ov.Config, error) {
 	ids := []v4l2.CtrlID{
+		10094849, // Auto Exposure: Auto Mode
+		10094868, // White Balance, Auto & Preset: Manual
+		10094872, // ISO Sensitivity, Auto: Manual
+		9963807,  // Color Effects: Set Cb/Cr
+
 		9963776,  // Brightness
 		9963777,  // Contrast
 		9963778,  // Saturation

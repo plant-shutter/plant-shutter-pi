@@ -14,25 +14,25 @@ type Project struct {
 
 type Config struct {
 	// ID 公认的值，是唯一的，和ble的uid有点像
-	ID v4l2.CtrlID `json:"ID,omitempty"`
+	ID v4l2.CtrlID `json:"ID"`
 	// 当前值
-	Value v4l2.CtrlValue `json:"value,omitempty"`
+	Value v4l2.CtrlValue `json:"value"`
 	// 人类可读的名称，直接从摄像头获取的，所以是英文
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
 
 	// 是否为菜单
-	IsMenu bool `json:"isMenu,omitempty"`
+	IsMenu bool `json:"isMenu"`
 
 	// 如果是菜单，那就有Items，下标-人类可读名称
 	// map[index]name
-	MenuItems map[uint32]string `json:"menuItems,omitempty"`
+	MenuItems map[uint32]string `json:"menuItems"`
 
 	// 最小值
-	Minimum int32 `json:"minimum,omitempty"`
+	Minimum int32 `json:"minimum"`
 	// 最大值
-	Maximum int32 `json:"maximum,omitempty"`
+	Maximum int32 `json:"maximum"`
 	//步进值
-	Step int32 `json:"step,omitempty"`
+	Step int32 `json:"step"`
 }
 
 type UpdateConfig struct {

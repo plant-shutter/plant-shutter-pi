@@ -40,6 +40,9 @@ var (
 	port       = flag.Int("port", 9999, "ui port")
 	storageDir = flag.String("dir", "./plant-project", "")
 	staticsDir = flag.String("statics", "./statics", "")
+	devName    = flag.String("dev", "/dev/video0", "")
+	width      = flag.Int("width", 3280, "")
+	height     = flag.Int("height", 2464, "")
 
 	cancelWebdav context.CancelFunc
 	cancelLock   sync.Mutex
@@ -95,11 +98,6 @@ func main() {
 	deviceRouter.GET("/config", listConfig)
 	deviceRouter.PUT("/config", updateConfig)
 
-	// 获取配置信息，包括中文名，最大最小值，步长，当前值，菜单，ID
-	// 更新配置 ID，值 支持List
-	// 预览分辨率选择
-	// 测试 start-close-start
-
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
 	projectRouter.GET("", listProject)
@@ -111,28 +109,46 @@ func main() {
 	projectRouter.GET("/:name/images/:name")
 	projectRouter.GET("/:name/images")
 
-	devName := "/dev/video0"
-	dev, err = device.Open(
-		devName,
-		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
-	)
-
-	if err != nil {
-		logger.Fatal(err)
+	if err = startDevice(*width, *height); err != nil {
+		logger.Error(err)
+		return
 	}
 	defer dev.Close()
+
+	utils.ListenAndServe(r, *port)
+}
+
+func startDevice(w, h int) error {
+	var err error
+	dev, err = device.Open(
+		*devName,
+		device.WithBufferSize(0),
+	)
 	err = camera.InitControls(dev)
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
-
-	if err := dev.Start(context.TODO()); err != nil {
-		logger.Fatal(err)
+	// todo: get max pixel size
+	//if w <= 0 || h <= 0 {
+	//	info, err := v4l2.GetAllFormatFrameSizes(dev.Fd())
+	//	if err != nil {
+	//		return err
+	//	}
+	//
+	//	logger.Info(info)
+	//}
+	err = dev.SetPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: uint32(w), Height: uint32(h)})
+	if err != nil {
+		return err
+	}
+	logger.Infof("set pix format to %d*%d", w, h)
+	if err = dev.Start(context.Background()); err != nil {
+		return err
 	}
 
 	frames = dev.GetOutput()
 
-	utils.ListenAndServe(r, *port)
+	return nil
 }
 
 func listConfig(c *gin.Context) {

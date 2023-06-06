@@ -1,13 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 
-	"github.com/goccy/go-json"
 	dev "github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
 
@@ -27,14 +28,60 @@ func main() {
 
 	configs, err := camera.GetKnownCtrlConfigs(device)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
+	}
+	_ = prettyPrint(configs)
+	err = t(device)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+}
+
+func t(dev *dev.Device) error {
+	err := dev.SetControlValue(10094849, 1)
+	if err != nil {
+		return err
+	}
+	err = dev.SetControlValue(10094850, 100)
+	if err != nil {
+		return err
+	}
+	control, err := v4l2.GetControl(dev.Fd(), 10094850)
+	if err != nil {
+		return err
+	}
+	err = prettyPrint(control)
+	if err != nil {
+		return err
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "    ")
-	if err := enc.Encode(configs); err != nil {
-		panic(err)
+	err = shot(dev, 640, 480, "1")
+	if err != nil {
+		return err
 	}
+
+	//time.Sleep(time.Second)
+	//err := dev.SetControlValue(10094849, 0)
+	//if err != nil {
+	//	return err
+	//}
+	//err = shot(dev, 640, 480, "2")
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//control, err := v4l2.GetControl(dev.Fd(), 10094850)
+	//if err != nil {
+	//	return err
+	//}
+	//err = prettyPrint(control)
+	//if err != nil {
+	//	return err
+	//}
+
+	return nil
 }
 
 func printControl1(ctrl v4l2.Control) {
@@ -64,18 +111,27 @@ func printControl1(ctrl v4l2.Control) {
 	}
 }
 
-func printControl(ctrl v4l2.Control) {
-	fmt.Printf("Control id (%d) name: %s\t[min: %d; max: %d; step: %d; default: %d current_val: %d]\n",
-		ctrl.ID, ctrl.Name, ctrl.Minimum, ctrl.Maximum, ctrl.Step, ctrl.Default, ctrl.Value)
+func prettyPrint(in any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "    ")
 
-	if ctrl.IsMenu() {
-		menus, err := ctrl.GetMenuItems()
-		if err != nil {
-			return
-		}
+	return enc.Encode(in)
+}
 
-		for _, m := range menus {
-			fmt.Printf("\t(%d) Menu %s: [%d]\n", m.Index, m.Name, m.Value)
-		}
+func shot(dev *dev.Device, width, height int, prefix string) error {
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	if err := dev.Start(ctx); err != nil {
+		return err
 	}
+
+	frame := <-dev.GetOutput()
+	err := os.WriteFile(fmt.Sprintf("%s-%d-%d.jpg", prefix, width, height), frame, 0640)
+	if err != nil {
+		return err
+	}
+	log.Println("shot 1")
+
+	return nil
 }
