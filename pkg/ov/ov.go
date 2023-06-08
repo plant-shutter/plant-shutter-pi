@@ -1,15 +1,20 @@
 package ov
 
 import (
-	"time"
-
 	"github.com/vladimirvivien/go4vl/v4l2"
 )
 
-type Project struct {
-	Name     string        `json:"name" binding:"required"`
-	Info     string        `json:"info" binding:"required"`
-	Interval time.Duration `json:"interval" binding:"required"`
+type NewProject struct {
+	Name     string `json:"name" binding:"required"`
+	Info     string `json:"info" binding:"required"`
+	Interval int    `json:"interval" binding:"required"`
+}
+
+type UpdateProject struct {
+	Name     string  `json:"name" binding:"required"`
+	Info     *string `json:"info"`
+	Interval *int    `json:"interval"`
+	Running  *bool   `json:"running"`
 }
 
 type ProjectName struct {

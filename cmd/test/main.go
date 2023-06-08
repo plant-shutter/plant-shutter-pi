@@ -1,45 +1,27 @@
 package main
 
 import (
-	"fmt"
-	"os"
+	"log"
+	"time"
 )
 
-const pageSize = 10 // 每页文件数
-
 func main() {
-	dir := "./mydir"
-	page := 1
-	startIndex := (page - 1) * pageSize
-
-	for {
-		f, err := os.Open(dir)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-
-		files, err := f.Readdir(pageSize)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-		f.Close()
-
-		for i := 0; i < len(files); i++ {
-			file := files[i]
-			if !file.IsDir() {
-				if i >= startIndex && i < startIndex+pageSize {
-					fmt.Println(file.Name())
-				}
+	t := time.NewTimer(time.Second)
+	go func() {
+		for {
+			select {
+			case x := <-t.C:
+				log.Println(x)
 			}
 		}
+	}()
+	time.Sleep(time.Second * 3)
+	t.Stop()
+	t.Stop()
 
-		if len(files) < pageSize {
-			break
-		}
-
-		page++
-		startIndex = (page - 1) * pageSize
-	}
+	log.Println("stop")
+	time.Sleep(time.Second * 3)
+	t.Reset(time.Second)
+	log.Println("reset")
+	time.Sleep(time.Second * 3)
 }

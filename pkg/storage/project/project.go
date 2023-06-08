@@ -86,6 +86,25 @@ func (p *Project) LatestImageName() (string, error) {
 	return info.LatestImage, nil
 }
 
+func (p *Project) LatestImage() ([]byte, error) {
+	info, err := p.loadImageInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	return p.GetImage(info.LatestImage)
+}
+
+func (p *Project) GetImage(name string) ([]byte, error) {
+	// todo 路径检查
+	file, err := os.ReadFile(path.Join(p.getImageDirPath(), name))
+	if err != nil {
+		return nil, fmt.Errorf("picture not found, %w", err)
+	}
+
+	return file, nil
+}
+
 func (p *Project) ListImages() ([]string, error) {
 	files, err := os.ReadDir(p.getImageDirPath())
 	if err != nil {

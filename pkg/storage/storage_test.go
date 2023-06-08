@@ -18,7 +18,7 @@ func TestProject(t *testing.T) {
 	//checkErr(t, err)
 	//log.Println(*project)
 	//
-	//name, err := project.LatestImageName()
+	//name, err := project.LatestImage()
 	//checkErr(t, err)
 	//log.Println(name)
 	//
@@ -28,7 +28,7 @@ func TestProject(t *testing.T) {
 	//checkErr(t, err)
 	//log.Println(images)
 	//
-	//name, err = project.LatestImageName()
+	//name, err = project.LatestImage()
 	//checkErr(t, err)
 	//log.Println(name)
 }

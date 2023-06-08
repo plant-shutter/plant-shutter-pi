@@ -24,6 +24,7 @@ import (
 
 	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/ov"
+	"plant-shutter-pi/pkg/schedule"
 	"plant-shutter-pi/pkg/storage"
 	"plant-shutter-pi/pkg/storage/consts"
 	"plant-shutter-pi/pkg/utils"
@@ -49,13 +50,12 @@ var (
 	cancelWebdav context.CancelFunc
 	cancelLock   sync.Mutex
 
-	stg *storage.Storage
-
 	logger *zap.SugaredLogger
 
+	stg    *storage.Storage
 	frames <-chan []byte
-
-	dev *device.Device
+	dev    *device.Device
+	sch    *schedule.Scheduler
 )
 
 func init() {
@@ -103,14 +103,13 @@ func main() {
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
 	projectRouter.GET(fmt.Sprintf("/%s", runningProjectRouterKey), getRunningProject)
-	projectRouter.PUT(fmt.Sprintf("/%s", runningProjectRouterKey), updateRunningProject)
 	projectRouter.GET("", listProject)
 	projectRouter.POST("", createProject)
 	projectRouter.PUT("", updateProject)
 	projectRouter.DELETE("/:name", deleteProject)
 
 	projectRouter.GET("/:name/images/latest", projectLatestImage)
-	projectRouter.GET("/:name/images/:name")
+	projectRouter.GET("/:name/images/:name", getImage)
 	projectRouter.GET("/:name/images", listProjectImages)
 
 	if err = startDevice(*width, *height); err != nil {
@@ -118,6 +117,8 @@ func main() {
 		return
 	}
 	defer dev.Close()
+	sch = schedule.New(frames)
+	defer sch.Clear()
 
 	utils.ListenAndServe(r, *port)
 }
@@ -203,22 +204,22 @@ func getRunningProject(c *gin.Context) {
 	return
 }
 
-func updateRunningProject(c *gin.Context) {
-	var p ov.ProjectName
-	err := c.Bind(&p)
-	if err != nil {
-		return
-	}
-
-	err = stg.SetLastRunningProject(p.Name)
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, jsend.Success(p))
-	return
-}
+//func updateRunningProject(c *gin.Context) {
+//	var p ov.ProjectName
+//	err := c.Bind(&p)
+//	if err != nil {
+//		return
+//	}
+//
+//	err = stg.SetLastRunningProject(p.Name)
+//	if err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//
+//	c.JSON(http.StatusOK, jsend.Success(p))
+//	return
+//}
 
 func listProject(c *gin.Context) {
 	projects, err := stg.ListProjects()
@@ -232,13 +233,13 @@ func listProject(c *gin.Context) {
 }
 
 func createProject(c *gin.Context) {
-	var p ov.Project
+	var p ov.NewProject
 	err := c.Bind(&p)
 	if err != nil {
 		return
 	}
-	if p.Interval < consts.MinInterval {
-		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", p.Interval, consts.MinInterval)))
+	if intervalToDuration(p.Interval) < consts.MinInterval {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %dms less than %s", p.Interval, consts.MinInterval)))
 		return
 	}
 	if p.Name == runningProjectRouterKey {
@@ -256,7 +257,7 @@ func createProject(c *gin.Context) {
 		return
 	}
 
-	pj, err = stg.NewProject(p.Name, p.Info, p.Interval)
+	pj, err = stg.NewProject(p.Name, p.Info, intervalToDuration(p.Interval))
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -267,14 +268,9 @@ func createProject(c *gin.Context) {
 }
 
 func updateProject(c *gin.Context) {
-	var p ov.Project
+	var p ov.UpdateProject
 	err := c.Bind(&p)
 	if err != nil {
-		return
-	}
-
-	if p.Interval < consts.MinInterval {
-		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", p.Interval, consts.MinInterval)))
 		return
 	}
 
@@ -287,13 +283,31 @@ func updateProject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project does not exist"))
 		return
 	}
-	pj.Info = p.Info
-	pj.Interval = p.Interval
+
+	if p.Interval != nil {
+		t := intervalToDuration(*p.Interval)
+		if t < consts.MinInterval {
+			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", t, consts.MinInterval)))
+			return
+		}
+		pj.Interval = t
+	}
+	if p.Info != nil {
+		pj.Info = *p.Info
+	}
 
 	err = stg.UpdateProject(pj)
 	if err != nil {
 		internalErr(c, err)
 		return
+	}
+	// todo start or stop project
+	if p.Running != nil {
+		if *p.Running {
+			sch.Begin(pj)
+		} else {
+			sch.Stop()
+		}
 	}
 
 	c.JSON(http.StatusOK, jsend.Success(pj))
@@ -332,14 +346,25 @@ func projectLatestImage(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
-	image, err := p.LatestImageName()
+	image, err := p.LatestImage()
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
+	c.Header("Content-Type", "image/jpeg")
+	c.Writer.Write(image)
+}
 
-	c.JSON(http.StatusOK, jsend.Success(image))
-	return
+func getImage(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
 }
 
 func listProjectImages(c *gin.Context) {
@@ -359,10 +384,7 @@ func listProjectImages(c *gin.Context) {
 	}
 	page, _ := strconv.Atoi(c.Query("page"))
 	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-	subImages, prev, next, err := getPage(images, page, pageSize)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, jsend.SimpleErr(err.Error()))
-	}
+	subImages, prev, next := getPage(images, page, pageSize)
 	c.JSON(http.StatusOK, jsend.Success(map[string]any{
 		"page":     page,
 		"pageSize": pageSize,
@@ -371,7 +393,6 @@ func listProjectImages(c *gin.Context) {
 		"total":    len(images),
 		"images":   subImages,
 	}))
-	return
 }
 
 func realtimeVideo(c *gin.Context) {
@@ -436,12 +457,6 @@ func shutdownWebdav(c *gin.Context) {
 	c.JSON(http.StatusOK, jsend.Success(nil))
 }
 
-func getImage(c *gin.Context) {
-	//project := c.Param("project")
-	//
-	//c.File()
-}
-
 func registerStaticsDir(group gin.IRoutes, dir, relativeGroup string) error {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return fmt.Errorf("the specified directory %s does not exist", dir)
@@ -461,12 +476,14 @@ func internalErr(c *gin.Context, err error) {
 	c.JSON(http.StatusInternalServerError, jsend.SimpleErr(err.Error()))
 }
 
-func getPage(strs []string, page, pageSize int) ([]string, int, int, error) {
+func getPage(strs []string, page, pageSize int) ([]string, int, int) {
 	total := len(strs)
-
+	if page < 1 {
+		page = 1
+	}
 	startIndex := (page - 1) * pageSize
 	if startIndex >= total {
-		return nil, 0, 0, fmt.Errorf("invalid page")
+		return nil, 0, 0
 	}
 	endIndex := startIndex + pageSize
 	if endIndex > total {
@@ -474,14 +491,15 @@ func getPage(strs []string, page, pageSize int) ([]string, int, int, error) {
 	}
 
 	prevPage := page - 1
-	if prevPage < 1 {
-		prevPage = 0
-	}
 
 	nextPage := page + 1
 	if endIndex == total {
 		nextPage = 0
 	}
 
-	return strs[startIndex:endIndex], prevPage, nextPage, nil
+	return strs[startIndex:endIndex], prevPage, nextPage
+}
+
+func intervalToDuration(i int) time.Duration {
+	return time.Millisecond * time.Duration(i)
 }

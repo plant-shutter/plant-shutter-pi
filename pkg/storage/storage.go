@@ -87,6 +87,7 @@ func (s *Storage) NewProject(name, info string, interval time.Duration) (*projec
 		return nil, err
 	}
 	list = append(list, p)
+	p.SetRootDir(s.rootDir)
 
 	return p, s.dumpList(list)
 }
@@ -140,6 +141,7 @@ func (s *Storage) GetLastRunningProject() (*project.Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.LastRunning.SetRootDir(s.rootDir)
 
 	return p.LastRunning, nil
 }
