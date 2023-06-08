@@ -15,7 +15,7 @@ import (
 
 type Project struct {
 	Name     string        `json:"name"`
-	Info     string        `json:"info,omitempty"`
+	Info     string        `json:"info"`
 	Interval time.Duration `json:"interval"`
 
 	CreatedAt time.Time `json:"createdAt"`

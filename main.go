@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -26,6 +25,7 @@ import (
 	"plant-shutter-pi/pkg/ov"
 	"plant-shutter-pi/pkg/storage"
 	"plant-shutter-pi/pkg/storage/consts"
+	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/utils"
 	"plant-shutter-pi/pkg/webdav"
 )
@@ -33,6 +33,8 @@ import (
 const (
 	webDavStart    = "start"
 	webDavShutdown = "shutdown"
+
+	runningProjectRouterKey = "running"
 )
 
 var (
@@ -54,6 +56,9 @@ var (
 	frames <-chan []byte
 
 	dev *device.Device
+
+	runningProject     *project.Project
+	runningProjectLock sync.Mutex
 )
 
 func init() {
@@ -100,6 +105,8 @@ func main() {
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
+	projectRouter.GET(fmt.Sprintf("/%s", runningProjectRouterKey), getRunningProject)
+	projectRouter.PUT(fmt.Sprintf("/%s", runningProjectRouterKey), updateRunningProject)
 	projectRouter.GET("", listProject)
 	projectRouter.POST("", createProject)
 	projectRouter.PUT("", updateProject)
@@ -188,6 +195,45 @@ func getProject(c *gin.Context) {
 	return
 }
 
+func getRunningProject(c *gin.Context) {
+	runningProjectLock.Lock()
+	var p *project.Project
+	if runningProject != nil {
+		p = &*runningProject
+	}
+	runningProjectLock.Unlock()
+
+	c.JSON(http.StatusOK, jsend.Success(p))
+	return
+}
+
+func updateRunningProject(c *gin.Context) {
+	var p ov.ProjectName
+	err := c.Bind(&p)
+	if err != nil {
+		return
+	}
+
+	pj, err := stg.GetProject(p.Name)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if pj == nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project does not exist"))
+		return
+	}
+	runningProjectLock.Lock()
+	if runningProject != nil {
+		// todo stop project
+	}
+	runningProject = pj
+	runningProjectLock.Unlock()
+
+	c.JSON(http.StatusOK, jsend.Success(p))
+	return
+}
+
 func listProject(c *gin.Context) {
 	projects, err := stg.ListProjects()
 	if err != nil {
@@ -207,6 +253,10 @@ func createProject(c *gin.Context) {
 	}
 	if p.Interval < consts.MinInterval {
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", p.Interval, consts.MinInterval)))
+		return
+	}
+	if p.Name == runningProjectRouterKey {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project name cannot be %s", p.Name)))
 		return
 	}
 
@@ -311,16 +361,16 @@ func realtimeVideo(c *gin.Context) {
 	start := time.Now()
 	for frame := range frames {
 		end := time.Now()
-		log.Println(end.Sub(start))
+		logger.Info(end.Sub(start))
 		start = end
 		partWriter, err := mimeWriter.CreatePart(partHeader)
 		if err != nil {
-			log.Printf("failed to create multi-part writer: %s", err)
+			logger.Errorf("failed to create multi-part writer: %s", err)
 			return
 		}
 
 		if _, err := partWriter.Write(frame); err != nil {
-			log.Printf("failed to write image: %s", err)
+			logger.Errorf("failed to write image: %s", err)
 		}
 	}
 }

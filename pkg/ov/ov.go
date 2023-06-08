@@ -12,6 +12,10 @@ type Project struct {
 	Interval time.Duration `json:"interval" binding:"required"`
 }
 
+type ProjectName struct {
+	Name string `json:"name" binding:"required"`
+}
+
 type Config struct {
 	// ID 公认的值，是唯一的，和ble的uid有点像
 	ID v4l2.CtrlID `json:"ID"`

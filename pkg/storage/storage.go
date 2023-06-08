@@ -17,6 +17,11 @@ type Storage struct {
 	rootDir string
 }
 
+type Info struct {
+	Projects    []*project.Project
+	LastRunning *project.Project
+}
+
 func New(path string) (*Storage, error) {
 	if path == "" {
 		return nil, fmt.Errorf("rootDir can not be empty")
@@ -27,7 +32,7 @@ func New(path string) (*Storage, error) {
 	}
 
 	s := &Storage{rootDir: path}
-	if err := s.initInfoFile(); err != nil {
+	if err := s.initDependFile(); err != nil {
 		return nil, err
 	}
 
@@ -84,7 +89,7 @@ func (s *Storage) NewProject(name, info string, interval time.Duration) (*projec
 	}
 	list = append(list, p)
 
-	return p, s.dump(list)
+	return p, s.dumpList(list)
 }
 
 func (s *Storage) UpdateProject(p *project.Project) error {
@@ -99,7 +104,7 @@ func (s *Storage) UpdateProject(p *project.Project) error {
 		if list[i].Name == p.Name {
 			p.CreatedAt = list[i].CreatedAt
 			list[i] = p
-			return s.dump(list)
+			return s.dumpList(list)
 		}
 	}
 
@@ -116,7 +121,7 @@ func (s *Storage) DeleteProject(name string) error {
 			p := list[i]
 			p.SetRootDir(s.rootDir)
 			list = append(list[:i], list[i+1:]...)
-			if err = s.dump(list); err != nil {
+			if err = s.dumpList(list); err != nil {
 				return err
 			}
 			return p.Clear()
@@ -126,7 +131,33 @@ func (s *Storage) DeleteProject(name string) error {
 	return nil
 }
 
-func (s *Storage) dump(list []*project.Project) error {
+func (s *Storage) GetLastRunningProject() (*project.Project, error) {
+	data, err := os.ReadFile(s.getProjectLastRunningPath())
+	if err != nil {
+		return nil, err
+	}
+	p := &project.Project{}
+	err = json.Unmarshal(data, p)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+func (s *Storage) SetLastRunningProject(name string) error {
+	p, err := s.GetProject(name)
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return fmt.Errorf("project does not exist")
+	}
+
+	return s.dumpLastRunning(p)
+}
+
+func (s *Storage) dumpList(list []*project.Project) error {
 	f, err := os.Create(s.getProjectInfoPath())
 	if err != nil {
 		return err
@@ -136,14 +167,36 @@ func (s *Storage) dump(list []*project.Project) error {
 	return json.NewEncoder(f).Encode(list)
 }
 
+func (s *Storage) dumpLastRunning(p *project.Project) error {
+	data, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(s.getProjectLastRunningPath(), data, 0660)
+}
+
 func (s *Storage) getProjectInfoPath() string {
 	return path.Join(s.rootDir, consts.DefaultInfoFile)
 }
 
-func (s *Storage) initInfoFile() error {
+func (s *Storage) getProjectLastRunningPath() string {
+	return path.Join(s.rootDir, consts.DefaultLastRunningFile)
+}
+
+func (s *Storage) initDependFile() error {
 	_, err := os.Stat(s.getProjectInfoPath())
 	if os.IsNotExist(err) {
-		return s.dump(make([]*project.Project, 0))
+		if err = s.dumpList(make([]*project.Project, 0)); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	_, err = os.Stat(s.getProjectLastRunningPath())
+	if os.IsNotExist(err) {
+		return s.dumpLastRunning(nil)
 	}
 
 	return err

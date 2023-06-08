@@ -5,9 +5,10 @@ import (
 )
 
 const (
-	DefaultImagesDir = "images"
-	DefaultVideosDir = "videos"
-	DefaultInfoFile  = "info.json"
+	DefaultImagesDir       = "images"
+	DefaultVideosDir       = "videos"
+	DefaultInfoFile        = "info.json"
+	DefaultLastRunningFile = "last.json"
 
 	DefaultImageExt = ".jpg"
 
