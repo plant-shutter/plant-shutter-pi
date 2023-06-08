@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +26,6 @@ import (
 	"plant-shutter-pi/pkg/ov"
 	"plant-shutter-pi/pkg/storage"
 	"plant-shutter-pi/pkg/storage/consts"
-	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/utils"
 	"plant-shutter-pi/pkg/webdav"
 )
@@ -56,9 +56,6 @@ var (
 	frames <-chan []byte
 
 	dev *device.Device
-
-	runningProject     *project.Project
-	runningProjectLock sync.Mutex
 )
 
 func init() {
@@ -114,7 +111,7 @@ func main() {
 
 	projectRouter.GET("/:name/images/latest", projectLatestImage)
 	projectRouter.GET("/:name/images/:name")
-	projectRouter.GET("/:name/images")
+	projectRouter.GET("/:name/images", listProjectImages)
 
 	if err = startDevice(*width, *height); err != nil {
 		logger.Error(err)
@@ -196,12 +193,11 @@ func getProject(c *gin.Context) {
 }
 
 func getRunningProject(c *gin.Context) {
-	runningProjectLock.Lock()
-	var p *project.Project
-	if runningProject != nil {
-		p = &*runningProject
+	p, err := stg.GetLastRunningProject()
+	if err != nil {
+		internalErr(c, err)
+		return
 	}
-	runningProjectLock.Unlock()
 
 	c.JSON(http.StatusOK, jsend.Success(p))
 	return
@@ -214,21 +210,11 @@ func updateRunningProject(c *gin.Context) {
 		return
 	}
 
-	pj, err := stg.GetProject(p.Name)
+	err = stg.SetLastRunningProject(p.Name)
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-	if pj == nil {
-		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project does not exist"))
-		return
-	}
-	runningProjectLock.Lock()
-	if runningProject != nil {
-		// todo stop project
-	}
-	runningProject = pj
-	runningProjectLock.Unlock()
 
 	c.JSON(http.StatusOK, jsend.Success(p))
 	return
@@ -342,6 +328,10 @@ func projectLatestImage(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
 	image, err := p.LatestImageName()
 	if err != nil {
 		internalErr(c, err)
@@ -349,6 +339,38 @@ func projectLatestImage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, jsend.Success(image))
+	return
+}
+
+func listProjectImages(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+	images, err := p.ListImages()
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	subImages, prev, next, err := getPage(images, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr(err.Error()))
+	}
+	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+		"page":     page,
+		"pageSize": pageSize,
+		"prevPage": prev,
+		"nextPage": next,
+		"total":    len(images),
+		"images":   subImages,
+	}))
 	return
 }
 
@@ -437,4 +459,29 @@ func registerStaticsDir(group gin.IRoutes, dir, relativeGroup string) error {
 
 func internalErr(c *gin.Context, err error) {
 	c.JSON(http.StatusInternalServerError, jsend.SimpleErr(err.Error()))
+}
+
+func getPage(strs []string, page, pageSize int) ([]string, int, int, error) {
+	total := len(strs)
+
+	startIndex := (page - 1) * pageSize
+	if startIndex >= total {
+		return nil, 0, 0, fmt.Errorf("invalid page")
+	}
+	endIndex := startIndex + pageSize
+	if endIndex > total {
+		endIndex = total
+	}
+
+	prevPage := page - 1
+	if prevPage < 1 {
+		prevPage = 0
+	}
+
+	nextPage := page + 1
+	if endIndex == total {
+		nextPage = 0
+	}
+
+	return strs[startIndex:endIndex], prevPage, nextPage, nil
 }

@@ -17,8 +17,7 @@ type Storage struct {
 	rootDir string
 }
 
-type Info struct {
-	Projects    []*project.Project
+type LastInfo struct {
 	LastRunning *project.Project
 }
 
@@ -136,13 +135,13 @@ func (s *Storage) GetLastRunningProject() (*project.Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &project.Project{}
+	p := &LastInfo{}
 	err = json.Unmarshal(data, p)
 	if err != nil {
 		return nil, err
 	}
 
-	return p, nil
+	return p.LastRunning, nil
 }
 
 func (s *Storage) SetLastRunningProject(name string) error {
@@ -154,7 +153,7 @@ func (s *Storage) SetLastRunningProject(name string) error {
 		return fmt.Errorf("project does not exist")
 	}
 
-	return s.dumpLastRunning(p)
+	return s.dumpLastRunning(LastInfo{LastRunning: p})
 }
 
 func (s *Storage) dumpList(list []*project.Project) error {
@@ -167,7 +166,7 @@ func (s *Storage) dumpList(list []*project.Project) error {
 	return json.NewEncoder(f).Encode(list)
 }
 
-func (s *Storage) dumpLastRunning(p *project.Project) error {
+func (s *Storage) dumpLastRunning(p LastInfo) error {
 	data, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -196,7 +195,7 @@ func (s *Storage) initDependFile() error {
 
 	_, err = os.Stat(s.getProjectLastRunningPath())
 	if os.IsNotExist(err) {
-		return s.dumpLastRunning(nil)
+		return s.dumpLastRunning(LastInfo{})
 	}
 
 	return err

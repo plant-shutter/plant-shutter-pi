@@ -22,7 +22,6 @@ go.work
 
 .idea
 bin/
-plant-shutter/
 plant-project/
 
 tmp
