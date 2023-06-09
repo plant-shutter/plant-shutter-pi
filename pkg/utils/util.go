@@ -1,6 +1,9 @@
 package utils
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"time"
+)
 
 func Str2int64(in string) int64 {
 	b := []byte(in)
@@ -8,4 +11,8 @@ func Str2int64(in string) int64 {
 		b = append(b, 0)
 	}
 	return int64(binary.LittleEndian.Uint64(b))
+}
+
+func MsToDuration(i int) time.Duration {
+	return time.Millisecond * time.Duration(i)
 }

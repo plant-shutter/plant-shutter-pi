@@ -112,11 +112,14 @@ func main() {
 	projectRouter.GET("/:name/images/:name", getImage)
 	projectRouter.GET("/:name/images", listProjectImages)
 
+	// init camera
 	if err = startDevice(*width, *height); err != nil {
 		logger.Error(err)
 		return
 	}
 	defer dev.Close()
+
+	// init schedule
 	sch = schedule.New(frames)
 	defer sch.Clear()
 
@@ -129,10 +132,7 @@ func startDevice(w, h int) error {
 		*devName,
 		device.WithBufferSize(0),
 	)
-	err = camera.InitControls(dev)
-	if err != nil {
-		return err
-	}
+	camera.InitControls(dev)
 	// todo: get max pixel size
 	//if w <= 0 || h <= 0 {
 	//	info, err := v4l2.GetAllFormatFrameSizes(dev.Fd())
@@ -204,23 +204,6 @@ func getRunningProject(c *gin.Context) {
 	return
 }
 
-//func updateRunningProject(c *gin.Context) {
-//	var p ov.ProjectName
-//	err := c.Bind(&p)
-//	if err != nil {
-//		return
-//	}
-//
-//	err = stg.SetLastRunningProject(p.Name)
-//	if err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//
-//	c.JSON(http.StatusOK, jsend.Success(p))
-//	return
-//}
-
 func listProject(c *gin.Context) {
 	projects, err := stg.ListProjects()
 	if err != nil {
@@ -238,8 +221,9 @@ func createProject(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	if intervalToDuration(p.Interval) < consts.MinInterval {
-		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %dms less than %s", p.Interval, consts.MinInterval)))
+
+	if t := utils.MsToDuration(p.Interval); t < consts.MinInterval {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", t, consts.MinInterval)))
 		return
 	}
 	if p.Name == runningProjectRouterKey {
@@ -257,7 +241,12 @@ func createProject(c *gin.Context) {
 		return
 	}
 
-	pj, err = stg.NewProject(p.Name, p.Info, intervalToDuration(p.Interval))
+	s, err := camera.GetKnownCtrlSettings(dev)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	pj, err = stg.NewProject(p.Name, p.Info, p.Interval, s)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -285,12 +274,11 @@ func updateProject(c *gin.Context) {
 	}
 
 	if p.Interval != nil {
-		t := intervalToDuration(*p.Interval)
-		if t < consts.MinInterval {
-			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", t, consts.MinInterval)))
+		if *p.Interval < consts.MinInterval {
+			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %dms less than %dms", *p.Interval, consts.MinInterval)))
 			return
 		}
-		pj.Interval = t
+		pj.Interval = *p.Interval
 	}
 	if p.Info != nil {
 		pj.Info = *p.Info
@@ -304,6 +292,8 @@ func updateProject(c *gin.Context) {
 	// todo start or stop project
 	if p.Running != nil {
 		if *p.Running {
+			logger.Info("restore camera settings")
+			camera.ApplySettings(dev, pj.Settings)
 			sch.Begin(pj)
 		} else {
 			sch.Stop()
@@ -311,7 +301,6 @@ func updateProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, jsend.Success(pj))
-	return
 }
 
 func deleteProject(c *gin.Context) {
@@ -498,8 +487,4 @@ func getPage(strs []string, page, pageSize int) ([]string, int, int) {
 	}
 
 	return strs[startIndex:endIndex], prevPage, nextPage
-}
-
-func intervalToDuration(i int) time.Duration {
-	return time.Millisecond * time.Duration(i)
 }

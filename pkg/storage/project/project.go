@@ -9,14 +9,18 @@ import (
 
 	"github.com/goccy/go-json"
 
+	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/storage/consts"
 	"plant-shutter-pi/pkg/storage/util"
 )
 
 type Project struct {
-	Name     string        `json:"name"`
-	Info     string        `json:"info"`
-	Interval time.Duration `json:"interval"`
+	Name string `json:"name"`
+	Info string `json:"info"`
+	// ms
+	Interval int `json:"interval"`
+
+	Settings camera.Settings `json:"config"`
 
 	CreatedAt time.Time `json:"createdAt"`
 
@@ -34,11 +38,12 @@ func (p *Project) SetRootDir(dir string) {
 	p.rootDir = path.Join(dir, p.Name)
 }
 
-func New(name, info string, interval time.Duration, rootDir string) (*Project, error) {
+func New(name, info string, interval int, rootDir string, settings camera.Settings) (*Project, error) {
 	p := &Project{
 		Name:      name,
 		Info:      info,
 		Interval:  interval,
+		Settings:  settings,
 		CreatedAt: time.Now(),
 	}
 	p.SetRootDir(rootDir)

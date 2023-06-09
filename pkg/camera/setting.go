@@ -11,31 +11,18 @@ import (
 	"plant-shutter-pi/pkg/utils"
 )
 
-var logger *zap.SugaredLogger
+type Settings map[v4l2.CtrlID]v4l2.CtrlValue
 
-func init() {
-	logger = utils.GetLogger()
-}
-
-func InitControls(dev *device.Device) error {
-	ctrlSettings := map[v4l2.CtrlID]v4l2.CtrlValue{
+var (
+	logger       *zap.SugaredLogger
+	initSettings = Settings{
 		//10094849: 1,  // Auto Exposure: Auto Mode
 		//10094868: 0,  // White Balance, Auto & Preset: Manual
-		//10291459: 90, // Compression Quality: 90
 		//10094872: 0,  // ISO Sensitivity, Auto: Manual
-		//9963807:  0,  // Color Effects: Set Cb/Cr
-	}
-	for k, v := range ctrlSettings {
-		if err := dev.SetControlValue(k, v); err != nil {
-			logger.Warnf("set ctrl(%d) to %d, err: %s", k, v, err)
-		}
-	}
 
-	return nil
-}
-
-func GetKnownCtrlConfigs(dev *device.Device) ([]ov.Config, error) {
-	ids := []v4l2.CtrlID{
+		//10291459: 90, // Compression Quality: 90
+	}
+	knownCtrlID = []v4l2.CtrlID{
 		10094849, // Auto Exposure: Auto Mode
 		10094868, // White Balance, Auto & Preset: Manual
 		10094872, // ISO Sensitivity, Auto: Manual
@@ -52,8 +39,27 @@ func GetKnownCtrlConfigs(dev *device.Device) ([]ov.Config, error) {
 		10094871, // ISO Sensitivity
 		10291459, // Compression Quality
 	}
+)
+
+func init() {
+	logger = utils.GetLogger()
+}
+
+func InitControls(dev *device.Device) {
+	ApplySettings(dev, initSettings)
+}
+
+func ApplySettings(dev *device.Device, settings Settings) {
+	for k, v := range settings {
+		if err := dev.SetControlValue(k, v); err != nil {
+			logger.Warnf("set ctrl(%d) to %d, err: %s", k, v, err)
+		}
+	}
+}
+
+func GetKnownCtrlConfigs(dev *device.Device) ([]ov.Config, error) {
 	var res []ov.Config
-	for _, id := range ids {
+	for _, id := range knownCtrlID {
 		ctrl, err := v4l2.GetControl(dev.Fd(), id)
 		if err != nil {
 			logger.Warnf("The device does not support control(%d)", id)
@@ -64,6 +70,19 @@ func GetKnownCtrlConfigs(dev *device.Device) ([]ov.Config, error) {
 			return nil, err
 		}
 		res = append(res, cfg)
+	}
+
+	return res, nil
+}
+
+func GetKnownCtrlSettings(dev *device.Device) (Settings, error) {
+	res := make(Settings)
+	for _, id := range knownCtrlID {
+		ctrl, err := v4l2.GetControl(dev.Fd(), id)
+		if err != nil {
+			continue
+		}
+		res[ctrl.ID] = ctrl.Value
 	}
 
 	return res, nil

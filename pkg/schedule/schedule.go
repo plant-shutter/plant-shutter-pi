@@ -43,7 +43,7 @@ func (s *Scheduler) Begin(p *project.Project) {
 	s.p = p
 	s.lock.Unlock()
 	if p != nil {
-		s.t.Reset(p.Interval)
+		s.t.Reset(utils.MsToDuration(p.Interval))
 	}
 }
 

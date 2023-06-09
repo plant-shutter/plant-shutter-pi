@@ -1,9 +1,5 @@
 package consts
 
-import (
-	"time"
-)
-
 const (
 	DefaultImagesDir       = "images"
 	DefaultVideosDir       = "videos"
@@ -15,5 +11,5 @@ const (
 	DefaultFilePerm = 0660
 	DefaultDirPerm  = 0750
 
-	MinInterval = time.Millisecond * 500
+	MinInterval = 300
 )

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"time"
 
 	"github.com/goccy/go-json"
 
+	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/storage/consts"
 	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/storage/util"
@@ -72,7 +72,7 @@ func (s *Storage) GetProject(name string) (*project.Project, error) {
 	return nil, nil
 }
 
-func (s *Storage) NewProject(name, info string, interval time.Duration) (*project.Project, error) {
+func (s *Storage) NewProject(name, info string, interval int, settings camera.Settings) (*project.Project, error) {
 	list, err := s.ListProjects()
 	if err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (s *Storage) NewProject(name, info string, interval time.Duration) (*projec
 			return nil, fmt.Errorf("project name already exists")
 		}
 	}
-	p, err := project.New(name, info, interval, s.rootDir)
+	p, err := project.New(name, info, interval, s.rootDir, settings)
 	if err != nil {
 		return nil, err
 	}
