@@ -61,6 +61,8 @@ var (
 func init() {
 	logger = utils.GetLogger()
 	flag.Parse()
+	consts.Width = *width
+	consts.Height = *height
 }
 
 func main() {
@@ -246,7 +248,7 @@ func createProject(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	pj, err = stg.NewProject(p.Name, p.Info, p.Interval, s)
+	pj, err = stg.NewProject(p.Name, p.Info, p.Interval, s, p.Video)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -293,7 +295,7 @@ func updateProject(c *gin.Context) {
 	if p.Running != nil {
 		if *p.Running {
 			logger.Info("restore camera settings")
-			camera.ApplySettings(dev, pj.Settings)
+			camera.ApplySettings(dev, pj.Camera)
 			sch.Begin(pj)
 		} else {
 			sch.Stop()

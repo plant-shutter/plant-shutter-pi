@@ -8,14 +8,13 @@ import (
 	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/ov"
+	"plant-shutter-pi/pkg/types"
 	"plant-shutter-pi/pkg/utils"
 )
 
-type Settings map[v4l2.CtrlID]v4l2.CtrlValue
-
 var (
 	logger       *zap.SugaredLogger
-	initSettings = Settings{
+	initSettings = types.CameraSettings{
 		//10094849: 1,  // Auto Exposure: Auto Mode
 		//10094868: 0,  // White Balance, Auto & Preset: Manual
 		//10094872: 0,  // ISO Sensitivity, Auto: Manual
@@ -49,7 +48,7 @@ func InitControls(dev *device.Device) {
 	ApplySettings(dev, initSettings)
 }
 
-func ApplySettings(dev *device.Device, settings Settings) {
+func ApplySettings(dev *device.Device, settings types.CameraSettings) {
 	for k, v := range settings {
 		if err := dev.SetControlValue(k, v); err != nil {
 			logger.Warnf("set ctrl(%d) to %d, err: %s", k, v, err)
@@ -75,8 +74,8 @@ func GetKnownCtrlConfigs(dev *device.Device) ([]ov.Config, error) {
 	return res, nil
 }
 
-func GetKnownCtrlSettings(dev *device.Device) (Settings, error) {
-	res := make(Settings)
+func GetKnownCtrlSettings(dev *device.Device) (types.CameraSettings, error) {
+	res := make(types.CameraSettings)
 	for _, id := range knownCtrlID {
 		ctrl, err := v4l2.GetControl(dev.Fd(), id)
 		if err != nil {

@@ -7,10 +7,10 @@ import (
 
 	"github.com/goccy/go-json"
 
-	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/storage/consts"
 	"plant-shutter-pi/pkg/storage/project"
-	"plant-shutter-pi/pkg/storage/util"
+	"plant-shutter-pi/pkg/types"
+	"plant-shutter-pi/pkg/utils"
 )
 
 type Storage struct {
@@ -26,7 +26,7 @@ func New(path string) (*Storage, error) {
 		return nil, fmt.Errorf("rootDir can not be empty")
 	}
 
-	if err := util.MkdirAll(path); err != nil {
+	if err := utils.MkdirAll(path); err != nil {
 		return nil, err
 	}
 
@@ -72,7 +72,7 @@ func (s *Storage) GetProject(name string) (*project.Project, error) {
 	return nil, nil
 }
 
-func (s *Storage) NewProject(name, info string, interval int, settings camera.Settings) (*project.Project, error) {
+func (s *Storage) NewProject(name, info string, interval int, settings types.CameraSettings, video types.VideoSetting) (*project.Project, error) {
 	list, err := s.ListProjects()
 	if err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (s *Storage) NewProject(name, info string, interval int, settings camera.Se
 			return nil, fmt.Errorf("project name already exists")
 		}
 	}
-	p, err := project.New(name, info, interval, s.rootDir, settings)
+	p, err := project.New(name, info, interval, s.rootDir, settings, video)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (s *Storage) dumpLastRunning(p LastInfo) error {
 		return err
 	}
 
-	return os.WriteFile(s.getProjectLastRunningPath(), data, 0660)
+	return os.WriteFile(s.getProjectLastRunningPath(), data, consts.DefaultFilePerm)
 }
 
 func (s *Storage) getProjectInfoPath() string {

@@ -2,12 +2,15 @@ package ov
 
 import (
 	"github.com/vladimirvivien/go4vl/v4l2"
+
+	"plant-shutter-pi/pkg/types"
 )
 
 type NewProject struct {
-	Name     string `json:"name" binding:"required"`
-	Info     string `json:"info" binding:"required"`
-	Interval int    `json:"interval" binding:"required"`
+	Name     string             `json:"name" binding:"required"`
+	Info     string             `json:"info" binding:"required"`
+	Interval int                `json:"interval" binding:"required"`
+	Video    types.VideoSetting `json:"video"`
 }
 
 type UpdateProject struct {

@@ -8,22 +8,33 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"go.uber.org/zap"
 
-	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/storage/consts"
-	"plant-shutter-pi/pkg/storage/util"
+	"plant-shutter-pi/pkg/types"
+	"plant-shutter-pi/pkg/utils"
+	"plant-shutter-pi/pkg/video"
 )
+
+var (
+	logger *zap.SugaredLogger
+)
+
+func init() {
+	logger = utils.GetLogger()
+}
 
 type Project struct {
 	Name string `json:"name"`
 	Info string `json:"info"`
 	// ms
-	Interval int `json:"interval"`
-
-	Settings camera.Settings `json:"config"`
+	Interval int                  `json:"interval"`
+	Camera   types.CameraSettings `json:"camera"`
+	Video    types.VideoSetting   `json:"video"`
 
 	CreatedAt time.Time `json:"createdAt"`
 
+	video   *video.Builder
 	rootDir string
 }
 
@@ -34,20 +45,27 @@ type ImagesInfo struct {
 	UpdateAt time.Time `json:"updateAt"`
 }
 
+type VideoInfo struct {
+	MaxNumber int `json:"maxNumber"`
+
+	UpdateAt time.Time `json:"updateAt"`
+}
+
 func (p *Project) SetRootDir(dir string) {
 	p.rootDir = path.Join(dir, p.Name)
 }
 
-func New(name, info string, interval int, rootDir string, settings camera.Settings) (*Project, error) {
+func New(name, info string, interval int, rootDir string, camera types.CameraSettings, video types.VideoSetting) (*Project, error) {
 	p := &Project{
 		Name:      name,
 		Info:      info,
 		Interval:  interval,
-		Settings:  settings,
+		Camera:    camera,
+		Video:     video,
 		CreatedAt: time.Now(),
 	}
 	p.SetRootDir(rootDir)
-	err := util.MkdirAll(
+	err := utils.MkdirAll(
 		p.getImageDirPath(),
 		p.getVideoDirPath(),
 	)
@@ -58,7 +76,9 @@ func New(name, info string, interval int, rootDir string, settings camera.Settin
 	if err = p.dumpImageInfo(&ImagesInfo{}); err != nil {
 		return p, err
 	}
-	// todo: dump video info
+	if err = p.dumpVideoInfo(&VideoInfo{}); err != nil {
+		return p, err
+	}
 
 	return p, nil
 }
@@ -69,13 +89,49 @@ func (p *Project) SaveImage(image []byte) error {
 		return err
 	}
 	name := p.generateImageName(image, info.MaxNumber)
-	if err = os.WriteFile(p.GetImagePath(name), image, 0660); err != nil {
+	if err = os.WriteFile(p.GetImagePath(name), image, consts.DefaultFilePerm); err != nil {
 		return err
 	}
 
 	info.MaxNumber++
 	info.LatestImage = name
 	if err = p.dumpImageInfo(info); err != nil {
+		return err
+	}
+	if p.Video.Enable {
+		if p.video == nil {
+			if err = p.NewVideoBuilder(); err != nil {
+				return err
+			}
+		} else if p.video.GetCnt() >= p.Video.MaxImage {
+			_ = p.video.Close()
+			if err = p.NewVideoBuilder(); err != nil {
+				return err
+			}
+		}
+
+		if err = p.video.Add(image); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *Project) NewVideoBuilder() error {
+	info, err := p.loadVideoInfo()
+	if err != nil {
+		return err
+	}
+
+	name := p.generateVideoName(info.MaxNumber)
+	logger.Infof("new video builder %s", name)
+	p.video, err = video.NewBuilder(path.Join(p.getVideoDirPath(), name), consts.Width, consts.Height, p.Video.FPS)
+	if err != nil {
+		return err
+	}
+	info.MaxNumber++
+	if err = p.dumpVideoInfo(info); err != nil {
 		return err
 	}
 
@@ -139,6 +195,11 @@ func (p *Project) generateImageName(image []byte, number int) string {
 	return fmt.Sprintf("%s-%d%s", p.Name, number, consts.DefaultImageExt)
 }
 
+func (p *Project) generateVideoName(number int) string {
+	// todo check time to string
+	return fmt.Sprintf("%s-%s-%d%s", p.Name, time.Now(), number, consts.DefaultVideoExt)
+}
+
 func (p *Project) loadImageInfo() (*ImagesInfo, error) {
 	data, err := os.ReadFile(p.getImageInfoPath())
 	if err != nil {
@@ -162,6 +223,29 @@ func (p *Project) dumpImageInfo(info *ImagesInfo) error {
 	return os.WriteFile(p.getImageInfoPath(), data, consts.DefaultFilePerm)
 }
 
+func (p *Project) loadVideoInfo() (*VideoInfo, error) {
+	data, err := os.ReadFile(p.getVideoInfoPath())
+	if err != nil {
+		return nil, fmt.Errorf("read video info err: %w", err)
+	}
+	info := &VideoInfo{}
+	if err = json.Unmarshal(data, info); err != nil {
+		return nil, fmt.Errorf("unmarshal video info err: %w", err)
+	}
+
+	return info, nil
+}
+
+func (p *Project) dumpVideoInfo(info *VideoInfo) error {
+	info.UpdateAt = time.Now()
+	data, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(p.getVideoInfoPath(), data, consts.DefaultFilePerm)
+}
+
 func (p *Project) GetImagePath(name string) string {
 	return path.Join(p.rootDir, consts.DefaultImagesDir, name)
 }
@@ -176,4 +260,8 @@ func (p *Project) getImageDirPath() string {
 
 func (p *Project) getVideoDirPath() string {
 	return path.Join(p.rootDir, consts.DefaultVideosDir)
+}
+
+func (p *Project) getVideoInfoPath() string {
+	return path.Join(p.rootDir, consts.DefaultVideosDir, consts.DefaultInfoFile)
 }
