@@ -95,6 +95,7 @@ func ctrlToConfig(ctrl v4l2.Control) (ov.Config, error) {
 		Minimum: ctrl.Minimum,
 		Maximum: ctrl.Maximum,
 		Step:    ctrl.Step,
+		Default: ctrl.Default,
 	}
 	if !ctrl.IsMenu() {
 		return res, nil

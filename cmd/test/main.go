@@ -1,27 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"log"
-	"time"
+
+	"plant-shutter-pi/pkg/storage/consts"
 )
 
 func main() {
-	t := time.NewTimer(time.Second)
-	go func() {
-		for {
-			select {
-			case x := <-t.C:
-				log.Println(x)
-			}
-		}
-	}()
-	time.Sleep(time.Second * 3)
-	t.Stop()
-	t.Stop()
 
-	log.Println("stop")
-	time.Sleep(time.Second * 3)
-	t.Reset(time.Second)
-	log.Println("reset")
-	time.Sleep(time.Second * 3)
+	format := fmt.Sprintf("%%s-%%0%dd%%s", 3)
+	log.Println(fmt.Sprintf(format, "xxxx", 1, consts.DefaultImageExt))
 }

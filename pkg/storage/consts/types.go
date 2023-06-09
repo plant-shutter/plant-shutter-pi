@@ -9,8 +9,8 @@ const (
 	DefaultImageExt = ".jpg"
 	DefaultVideoExt = ".avi"
 
-	DefaultFilePerm = 0660
-	DefaultDirPerm  = 0750
+	DefaultFilePerm = 0666
+	DefaultDirPerm  = 0777
 
 	MinInterval = 300
 )

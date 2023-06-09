@@ -3,6 +3,7 @@ package ov
 import (
 	"github.com/vladimirvivien/go4vl/v4l2"
 
+	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/types"
 )
 
@@ -14,10 +15,12 @@ type NewProject struct {
 }
 
 type UpdateProject struct {
-	Name     string  `json:"name" binding:"required"`
-	Info     *string `json:"info"`
-	Interval *int    `json:"interval"`
-	Running  *bool   `json:"running"`
+	Name     string              `json:"name" binding:"required"`
+	Info     *string             `json:"info"`
+	Interval *int                `json:"interval"`
+	Running  *bool               `json:"running"`
+	Camera   *bool               `json:"camera"`
+	Video    *types.VideoSetting `json:"video"`
 }
 
 type ProjectName struct {
@@ -45,9 +48,17 @@ type Config struct {
 	Maximum int32 `json:"maximum"`
 	//步进值
 	Step int32 `json:"step"`
+
+	Default int32 `json:"default"`
 }
 
 type UpdateConfig struct {
 	ID    v4l2.CtrlID
 	Value v4l2.CtrlValue
+}
+
+type Project struct {
+	*project.Project
+	Running   bool   `json:"running"`
+	DiskUsage string `json:"diskUsage"`
 }

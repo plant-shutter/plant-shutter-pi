@@ -185,7 +185,31 @@ func (p *Project) ListImages() ([]string, error) {
 	return res, nil
 }
 
+func (p *Project) GetVideoPath(name string) string {
+	return path.Join(p.getVideoDirPath(), name)
+}
+
+func (p *Project) ListVideos() ([]string, error) {
+	files, err := os.ReadDir(p.getVideoDirPath())
+	if err != nil {
+		return nil, err
+	}
+	var res []string
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(file.Name(), consts.DefaultVideoExt) {
+			continue
+		}
+		res = append(res, file.Name())
+	}
+
+	return res, nil
+}
+
 func (p *Project) Clear() error {
+	_ = p.Close()
 	return os.RemoveAll(p.rootDir)
 }
 
@@ -197,14 +221,23 @@ func (p *Project) Close() error {
 	return nil
 }
 
+func (p *Project) Cleaned() (bool, error) {
+	name, err := p.LatestImageName()
+	if err != nil {
+		return false, err
+	}
+
+	return name == "", nil
+}
+
 func (p *Project) generateImageName(image []byte, number int) string {
 	// generate filenames using md5?
 	// fmt.Sprintf("%x", md5.Sum(data))
-	return fmt.Sprintf("%s-%d%s", p.Name, number, consts.DefaultImageExt)
+	return fmt.Sprintf("%s-%07d%s", p.Name, number, consts.DefaultImageExt)
 }
 
 func (p *Project) generateVideoName(number int) string {
-	return fmt.Sprintf("%s-%d%s", p.Name, number, consts.DefaultVideoExt)
+	return fmt.Sprintf("%s-%06d%s", p.Name, number, consts.DefaultVideoExt)
 }
 
 func (p *Project) loadImageInfo() (*ImagesInfo, error) {
@@ -251,6 +284,10 @@ func (p *Project) dumpVideoInfo(info *VideoInfo) error {
 	}
 
 	return os.WriteFile(p.getVideoInfoPath(), data, consts.DefaultFilePerm)
+}
+
+func (p *Project) GetRootPath() string {
+	return p.rootDir
 }
 
 func (p *Project) GetImagePath(name string) string {

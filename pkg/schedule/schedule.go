@@ -48,11 +48,23 @@ func (s *Scheduler) Begin(p *project.Project) {
 }
 
 func (s *Scheduler) Stop() {
+	s.logger.Info("scheduler: stopped")
 	s.t.Stop()
+	s.lock.Lock()
+	s.p = nil
+	s.lock.Unlock()
 }
 
 func (s *Scheduler) Clear() {
 	close(s.stopCh)
+}
+
+func (s *Scheduler) GetProject() *project.Project {
+	if s.p == nil {
+		return nil
+	}
+
+	return &*s.p
 }
 
 func (s *Scheduler) startDeal() {

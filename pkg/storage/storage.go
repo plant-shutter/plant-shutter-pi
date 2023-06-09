@@ -53,6 +53,9 @@ func (s *Storage) ListProjects() ([]*project.Project, error) {
 	if err = json.Unmarshal(data, &list); err != nil {
 		return nil, err
 	}
+	for _, p := range list {
+		p.SetRootDir(s.rootDir)
+	}
 
 	return list, nil
 }
@@ -64,7 +67,6 @@ func (s *Storage) GetProject(name string) (*project.Project, error) {
 	}
 	for _, p := range list {
 		if p.Name == name {
-			p.SetRootDir(s.rootDir)
 			return p, nil
 		}
 	}
@@ -72,7 +74,7 @@ func (s *Storage) GetProject(name string) (*project.Project, error) {
 	return nil, nil
 }
 
-func (s *Storage) NewProject(name, info string, interval int, settings types.CameraSettings, video types.VideoSetting) (*project.Project, error) {
+func (s *Storage) NewProject(name, info string, interval int, camera types.CameraSettings, video types.VideoSetting) (*project.Project, error) {
 	list, err := s.ListProjects()
 	if err != nil {
 		return nil, err
@@ -82,7 +84,7 @@ func (s *Storage) NewProject(name, info string, interval int, settings types.Cam
 			return nil, fmt.Errorf("project name already exists")
 		}
 	}
-	p, err := project.New(name, info, interval, s.rootDir, settings, video)
+	p, err := project.New(name, info, interval, s.rootDir, camera, video)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +121,6 @@ func (s *Storage) DeleteProject(name string) error {
 	for i := 0; i < len(list); i++ {
 		if list[i].Name == name {
 			p := list[i]
-			p.SetRootDir(s.rootDir)
 			list = append(list[:i], list[i+1:]...)
 			if err = s.dumpList(list); err != nil {
 				return err

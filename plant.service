@@ -1,0 +1,12 @@
+[Unit]
+Description = Plant Shutter Service
+After = network.target syslog.target
+Wants = network.target
+
+[Service]
+Type = simple
+ExecStart=/home/vincent/project/plant-shutter/bin/plant-shutter
+WorkingDirectory=/home/vincent/project/plant-shutter
+
+[Install]
+WantedBy = multi-user.target

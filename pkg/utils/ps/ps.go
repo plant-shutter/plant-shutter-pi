@@ -1,11 +1,14 @@
 package ps
 
 import (
+	"log"
+	"os"
+	"path/filepath"
+	"time"
+
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
-	"log"
-	"time"
 )
 
 func CPUStatus() (CPU, error) {
@@ -45,8 +48,37 @@ func Disks() {
 	if err != nil {
 		return
 	}
-
 	log.Println(partitions)
+}
+
+func DiskUsage(path string) (used, total uint64, usedPercent float64, err error) {
+	usage, err := disk.Usage(path)
+	if err != nil {
+		return
+	}
+	used = usage.Used
+	usedPercent = usage.UsedPercent
+	total = usage.Total
+	log.Println(usage)
+	return
+}
+
+func DirDiskUsage(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return size, nil
 }
 
 type CPU struct {

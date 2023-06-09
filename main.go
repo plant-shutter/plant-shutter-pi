@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
 	"github.com/vladimirvivien/go4vl/device"
@@ -28,6 +29,7 @@ import (
 	"plant-shutter-pi/pkg/storage"
 	"plant-shutter-pi/pkg/storage/consts"
 	"plant-shutter-pi/pkg/utils"
+	"plant-shutter-pi/pkg/utils/ps"
 	"plant-shutter-pi/pkg/webdav"
 )
 
@@ -101,6 +103,7 @@ func main() {
 	deviceRouter.PUT("/webdav", ctlWebdav)
 	deviceRouter.GET("/config", listConfig)
 	deviceRouter.PUT("/config", updateConfig)
+	deviceRouter.PUT("/config/reset", resetConfig)
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
@@ -108,11 +111,15 @@ func main() {
 	projectRouter.GET("", listProject)
 	projectRouter.POST("", createProject)
 	projectRouter.PUT("", updateProject)
+	projectRouter.PUT("/:name/reset", resetProject)
 	projectRouter.DELETE("/:name", deleteProject)
 
-	projectRouter.GET("/:name/images/latest", projectLatestImage)
-	projectRouter.GET("/:name/images/:name", getImage)
-	projectRouter.GET("/:name/images", listProjectImages)
+	projectRouter.GET("/:name/image/latest", projectLatestImage)
+	projectRouter.GET("/:name/image/:image", getImage)
+	projectRouter.GET("/:name/image", listProjectImages)
+
+	projectRouter.GET("/:name/video", listProjectVideos)
+	projectRouter.GET("/:name/video/:video", getProjectVideo)
 
 	// init camera
 	if err = startDevice(*width, *height); err != nil {
@@ -162,22 +169,46 @@ func listConfig(c *gin.Context) {
 	configs, err := camera.GetKnownCtrlConfigs(dev)
 	if err != nil {
 		internalErr(c, err)
+		return
 	}
 	c.JSON(http.StatusOK, jsend.Success(configs))
 }
 
 func updateConfig(c *gin.Context) {
-	cfg := &ov.UpdateConfig{}
-	err := c.Bind(cfg)
+	configs := make([]ov.UpdateConfig, 0)
+	err := c.Bind(&configs)
 	if err != nil {
 		return
 	}
-	err = dev.SetControlValue(cfg.ID, cfg.Value)
-	if err != nil {
-		internalErr(c, err)
+	for _, cfg := range configs {
+		if err = dev.SetControlValue(cfg.ID, cfg.Value); err != nil {
+			internalErr(c, err)
+			return
+		}
 	}
 
-	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("set ctrl(%d) to %d", cfg.ID, cfg.Value)))
+	c.JSON(http.StatusOK, jsend.Success("set ctrls config"))
+}
+
+func resetConfig(c *gin.Context) {
+	configs, err := camera.GetKnownCtrlConfigs(dev)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	for _, cfg := range configs {
+		if err = dev.SetControlValue(cfg.ID, cfg.Default); err != nil {
+			internalErr(c, err)
+			return
+		}
+	}
+	configs, err = camera.GetKnownCtrlConfigs(dev)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(configs))
 }
 
 func getProject(c *gin.Context) {
@@ -196,11 +227,7 @@ func getProject(c *gin.Context) {
 }
 
 func getRunningProject(c *gin.Context) {
-	p, err := stg.GetLastRunningProject()
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
+	p := sch.GetProject()
 
 	c.JSON(http.StatusOK, jsend.Success(p))
 	return
@@ -212,8 +239,25 @@ func listProject(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	res := make([]ov.Project, 0)
+	runningP := sch.GetProject()
+	for _, p := range projects {
+		usage, err := ps.DirDiskUsage(p.GetRootPath())
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
 
-	c.JSON(http.StatusOK, jsend.Success(projects))
+		var o ov.Project
+		o.Project = p
+		o.DiskUsage = humanize.Bytes(uint64(usage))
+		if runningP != nil && runningP.Name == p.Name {
+			o.Running = true
+		}
+		res = append(res, o)
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(res))
 	return
 }
 
@@ -286,6 +330,30 @@ func updateProject(c *gin.Context) {
 		pj.Info = *p.Info
 	}
 
+	if p.Camera != nil || p.Video != nil {
+		runningP := sch.GetProject()
+		cleaned, err := pj.Cleaned()
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		if (runningP != nil && runningP.Name == pj.Name) || !cleaned {
+			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s has been run, please reset first", pj.Name)))
+			return
+		}
+	}
+	if p.Video != nil {
+		pj.Video = *p.Video
+	}
+	if p.Camera != nil && *p.Camera {
+		setting, err := camera.GetKnownCtrlSettings(dev)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		pj.Camera = setting
+	}
+
 	err = stg.UpdateProject(pj)
 	if err != nil {
 		internalErr(c, err)
@@ -304,6 +372,34 @@ func updateProject(c *gin.Context) {
 	c.JSON(http.StatusOK, jsend.Success(pj))
 }
 
+func resetProject(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+	if pj := sch.GetProject(); pj != nil && pj.Name == p.Name {
+		sch.Stop()
+	}
+
+	if err = stg.DeleteProject(p.Name); err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	p, err = stg.NewProject(p.Name, p.Info, p.Interval, p.Camera, p.Video)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(p))
+}
+
 func deleteProject(c *gin.Context) {
 	name := c.Param("name")
 
@@ -313,10 +409,12 @@ func deleteProject(c *gin.Context) {
 		return
 	}
 	if pj == nil {
-		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project does not exist"))
+		c.JSON(http.StatusOK, jsend.SimpleErr("project does not exist"))
 		return
 	}
-
+	if p := sch.GetProject(); p != nil && p.Name == pj.Name {
+		sch.Stop()
+	}
 	if err = stg.DeleteProject(name); err != nil {
 		internalErr(c, err)
 		return
@@ -355,6 +453,13 @@ func getImage(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
+	image, err := p.GetImage(c.Param("image"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	c.Header("Content-Type", "image/jpeg")
+	c.Writer.Write(image)
 }
 
 func listProjectImages(c *gin.Context) {
@@ -382,6 +487,62 @@ func listProjectImages(c *gin.Context) {
 		"nextPage": next,
 		"total":    len(images),
 		"images":   subImages,
+	}))
+}
+
+func getProjectVideo(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+	images, err := p.ListImages()
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	subImages, prev, next := getPage(images, page, pageSize)
+	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+		"page":     page,
+		"pageSize": pageSize,
+		"prevPage": prev,
+		"nextPage": next,
+		"total":    len(images),
+		"images":   subImages,
+	}))
+}
+
+func listProjectVideos(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+	images, err := p.ListVideos()
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	subVideos, prev, next := getPage(images, page, pageSize)
+	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+		"page":     page,
+		"pageSize": pageSize,
+		"prevPage": prev,
+		"nextPage": next,
+		"total":    len(images),
+		"video":    subVideos,
 	}))
 }
 

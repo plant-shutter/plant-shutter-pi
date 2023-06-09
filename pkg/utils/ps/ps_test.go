@@ -6,17 +6,21 @@ import (
 )
 
 func TestPS(t *testing.T) {
-	m, err := MemoryStatus()
-	if err != nil {
-		t.Fatal(err)
-	}
-	log.Println(m)
+	//m, err := MemoryStatus()
+	//if err != nil {
+	//	t.Fatal(err)
+	//}
+	//log.Println(m)
+	//
+	//c, err := CPUStatus()
+	//if err != nil {
+	//	t.Fatal(err)
+	//}
+	//log.Println(c)
 
-	c, err := CPUStatus()
+	a, err := DirDiskUsage("C:\\Users\\85761\\repo\\plant-shutter-pi\\pkg\\types")
 	if err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
-	log.Println(c)
-
-	Disks()
+	log.Println(a)
 }
