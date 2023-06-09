@@ -291,7 +291,6 @@ func updateProject(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	// todo start or stop project
 	if p.Running != nil {
 		if *p.Running {
 			logger.Info("restore camera settings")

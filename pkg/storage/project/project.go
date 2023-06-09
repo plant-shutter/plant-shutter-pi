@@ -189,6 +189,14 @@ func (p *Project) Clear() error {
 	return os.RemoveAll(p.rootDir)
 }
 
+func (p *Project) Close() error {
+	if p.video != nil {
+		return p.video.Close()
+	}
+
+	return nil
+}
+
 func (p *Project) generateImageName(image []byte, number int) string {
 	// generate filenames using md5?
 	// fmt.Sprintf("%x", md5.Sum(data))
@@ -196,8 +204,7 @@ func (p *Project) generateImageName(image []byte, number int) string {
 }
 
 func (p *Project) generateVideoName(number int) string {
-	// todo check time to string
-	return fmt.Sprintf("%s-%s-%d%s", p.Name, time.Now(), number, consts.DefaultVideoExt)
+	return fmt.Sprintf("%s-%d%s", p.Name, number, consts.DefaultVideoExt)
 }
 
 func (p *Project) loadImageInfo() (*ImagesInfo, error) {

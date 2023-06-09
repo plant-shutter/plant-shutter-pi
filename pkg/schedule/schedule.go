@@ -73,6 +73,11 @@ func (s *Scheduler) startDeal() {
 				s.lock.Unlock()
 				s.logger.Infof("scheduler: took %s to get the image", time.Now().Sub(start))
 			case <-s.stopCh:
+				s.lock.Lock()
+				if s.p != nil {
+					_ = s.p.Close()
+				}
+				s.lock.Unlock()
 				s.logger.Info("scheduler: stopped!")
 				return
 			}
