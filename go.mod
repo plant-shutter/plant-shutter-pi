@@ -15,6 +15,8 @@ require (
 	golang.org/x/net v0.9.0
 )
 
+replace github.com/vladimirvivien/go4vl => ./third_party/go4vl
+
 require (
 	github.com/bytedance/sonic v1.8.8 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect

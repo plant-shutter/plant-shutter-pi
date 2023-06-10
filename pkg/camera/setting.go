@@ -1,11 +1,10 @@
 package camera
 
 import (
-	"strconv"
+	"go.uber.org/zap"
 
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
-	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/ov"
 	"plant-shutter-pi/pkg/types"
@@ -108,11 +107,7 @@ func ctrlToConfig(ctrl v4l2.Control) (ov.Config, error) {
 	}
 	menu := make(map[uint32]string)
 	for _, i := range items {
-		if ctrl.Type == v4l2.CtrlTypeIntegerMenu {
-			menu[i.Index] = strconv.FormatInt(utils.Str2int64(i.Name), 10)
-		} else {
-			menu[i.Index] = i.Name
-		}
+		menu[i.Index] = i.Name
 	}
 	res.MenuItems = menu
 
