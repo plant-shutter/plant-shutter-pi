@@ -14,14 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
+	"go.uber.org/zap"
+
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
-	"go.uber.org/zap"
 
 	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/ov"
@@ -104,6 +104,7 @@ func main() {
 	deviceRouter.GET("/config", listConfig)
 	deviceRouter.PUT("/config", updateConfig)
 	deviceRouter.PUT("/config/reset", resetConfig)
+	deviceRouter.GET("/disk", getDiskUsage)
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
@@ -175,6 +176,9 @@ func listConfig(c *gin.Context) {
 }
 
 func updateConfig(c *gin.Context) {
+	if p := sch.GetProject(); p != nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running", p.Name)))
+	}
 	configs := make([]ov.UpdateConfig, 0)
 	err := c.Bind(&configs)
 	if err != nil {
@@ -209,6 +213,20 @@ func resetConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, jsend.Success(configs))
+}
+
+func getDiskUsage(c *gin.Context) {
+	used, total, usedPercent, err := ps.DiskUsage(*storageDir)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+		"used":        humanize.Bytes(used),
+		"total":       humanize.Bytes(total),
+		"usedPercent": usedPercent,
+	}))
 }
 
 func getProject(c *gin.Context) {
@@ -500,22 +518,11 @@ func getProjectVideo(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
-	images, err := p.ListImages()
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	page, _ := strconv.Atoi(c.Query("page"))
-	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-	subImages, prev, next := getPage(images, page, pageSize)
-	c.JSON(http.StatusOK, jsend.Success(map[string]any{
-		"page":     page,
-		"pageSize": pageSize,
-		"prevPage": prev,
-		"nextPage": next,
-		"total":    len(images),
-		"images":   subImages,
-	}))
+	videoName := c.Param("video")
+	videoPath := p.GetVideoPath(videoName)
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", videoName))
+	c.Writer.Header().Set("Content-Type", "application/octet-stream")
+	c.File(videoPath)
 }
 
 func listProjectVideos(c *gin.Context) {
@@ -528,20 +535,20 @@ func listProjectVideos(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
-	images, err := p.ListVideos()
+	list, err := p.ListVideos()
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
 	page, _ := strconv.Atoi(c.Query("page"))
 	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-	subVideos, prev, next := getPage(images, page, pageSize)
+	subVideos, prev, next := getPage(list, page, pageSize)
 	c.JSON(http.StatusOK, jsend.Success(map[string]any{
 		"page":     page,
 		"pageSize": pageSize,
 		"prevPage": prev,
 		"nextPage": next,
-		"total":    len(images),
+		"total":    len(list),
 		"video":    subVideos,
 	}))
 }
@@ -552,11 +559,7 @@ func realtimeVideo(c *gin.Context) {
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Add("Content-Type", "image/jpeg")
 
-	start := time.Now()
 	for frame := range frames {
-		end := time.Now()
-		logger.Info(end.Sub(start))
-		start = end
 		partWriter, err := mimeWriter.CreatePart(partHeader)
 		if err != nil {
 			logger.Errorf("failed to create multi-part writer: %s", err)
