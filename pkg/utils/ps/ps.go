@@ -43,14 +43,6 @@ func MemoryStatus() (Memory, error) {
 	}, nil
 }
 
-func Disks() {
-	partitions, err := disk.Partitions(false)
-	if err != nil {
-		return
-	}
-	log.Println(partitions)
-}
-
 func DiskUsage(path string) (used, total uint64, usedPercent float64, err error) {
 	usage, err := disk.Usage(path)
 	if err != nil {

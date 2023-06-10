@@ -2,6 +2,7 @@ package project
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"strings"
@@ -166,46 +167,16 @@ func (p *Project) GetImage(name string) ([]byte, error) {
 	return file, nil
 }
 
-func (p *Project) ListImages() ([]string, error) {
-	files, err := os.ReadDir(p.getImageDirPath())
-	if err != nil {
-		return nil, err
-	}
-	var res []string
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(file.Name(), consts.DefaultImageExt) {
-			continue
-		}
-		res = append(res, file.Name())
-	}
-
-	return res, nil
+func (p *Project) ListImages(fun func(info fs.FileInfo) error) error {
+	return listFiles(p.getImageDirPath(), consts.DefaultImageExt, fun)
 }
 
 func (p *Project) GetVideoPath(name string) string {
 	return path.Join(p.getVideoDirPath(), name)
 }
 
-func (p *Project) ListVideos() ([]string, error) {
-	files, err := os.ReadDir(p.getVideoDirPath())
-	if err != nil {
-		return nil, err
-	}
-	var res []string
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(file.Name(), consts.DefaultVideoExt) {
-			continue
-		}
-		res = append(res, file.Name())
-	}
-
-	return res, nil
+func (p *Project) ListVideos(fun func(info fs.FileInfo) error) error {
+	return listFiles(p.getVideoDirPath(), consts.DefaultVideoExt, fun)
 }
 
 func (p *Project) Clear() error {
@@ -308,4 +279,31 @@ func (p *Project) getVideoDirPath() string {
 
 func (p *Project) getVideoInfoPath() string {
 	return path.Join(p.rootDir, consts.DefaultVideosDir, consts.DefaultInfoFile)
+}
+
+func listFiles(dir string, ext string, fun func(info fs.FileInfo) error) error {
+	if fun == nil {
+		return nil
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(file.Name(), ext) {
+			continue
+		}
+		info, err := file.Info()
+		if err != nil {
+			return err
+		}
+		if err := fun(info); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

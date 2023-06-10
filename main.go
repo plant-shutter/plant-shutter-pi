@@ -22,6 +22,7 @@ import (
 
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
+	"plant-shutter-pi/pkg/types"
 
 	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/ov"
@@ -115,9 +116,9 @@ func main() {
 	projectRouter.PUT("/:name/reset", resetProject)
 	projectRouter.DELETE("/:name", deleteProject)
 
-	projectRouter.GET("/:name/image/latest", projectLatestImage)
-	projectRouter.GET("/:name/image/:image", getImage)
 	projectRouter.GET("/:name/image", listProjectImages)
+	projectRouter.GET("/:name/image/latest", projectLatestImage)
+	projectRouter.GET("/:name/image/:image", getProjectImage)
 
 	projectRouter.GET("/:name/video", listProjectVideos)
 	projectRouter.GET("/:name/video/:video", getProjectVideo)
@@ -461,7 +462,7 @@ func projectLatestImage(c *gin.Context) {
 	c.Writer.Write(image)
 }
 
-func getImage(c *gin.Context) {
+func getProjectImage(c *gin.Context) {
 	p, err := stg.GetProject(c.Param("name"))
 	if err != nil {
 		internalErr(c, err)
@@ -490,21 +491,29 @@ func listProjectImages(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
-	images, err := p.ListImages()
+	list := make([]types.File, 0)
+	var totalSize int64
+	err = p.ListImages(func(info fs.FileInfo) error {
+		list = append(list, infoToFile(info))
+		totalSize += info.Size()
+
+		return nil
+	})
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
 	page, _ := strconv.Atoi(c.Query("page"))
 	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-	subImages, prev, next := getPage(images, page, pageSize)
+	subImages, prev, next := getPage(list, page, pageSize)
 	c.JSON(http.StatusOK, jsend.Success(map[string]any{
-		"page":     page,
-		"pageSize": pageSize,
-		"prevPage": prev,
-		"nextPage": next,
-		"total":    len(images),
-		"images":   subImages,
+		"page":      page,
+		"pageSize":  pageSize,
+		"prevPage":  prev,
+		"nextPage":  next,
+		"total":     len(list),
+		"images":    subImages,
+		"totalSize": humanize.Bytes(uint64(totalSize)),
 	}))
 }
 
@@ -535,7 +544,14 @@ func listProjectVideos(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
-	list, err := p.ListVideos()
+	list := make([]types.File, 0)
+	var totalSize int64
+	err = p.ListVideos(func(info fs.FileInfo) error {
+		list = append(list, infoToFile(info))
+		totalSize += info.Size()
+
+		return nil
+	})
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -544,12 +560,13 @@ func listProjectVideos(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.Query("page_size"))
 	subVideos, prev, next := getPage(list, page, pageSize)
 	c.JSON(http.StatusOK, jsend.Success(map[string]any{
-		"page":     page,
-		"pageSize": pageSize,
-		"prevPage": prev,
-		"nextPage": next,
-		"total":    len(list),
-		"video":    subVideos,
+		"page":      page,
+		"pageSize":  pageSize,
+		"prevPage":  prev,
+		"nextPage":  next,
+		"total":     len(list),
+		"video":     subVideos,
+		"totalSize": humanize.Bytes(uint64(totalSize)),
 	}))
 }
 
@@ -630,7 +647,7 @@ func internalErr(c *gin.Context, err error) {
 	c.JSON(http.StatusInternalServerError, jsend.SimpleErr(err.Error()))
 }
 
-func getPage(strs []string, page, pageSize int) ([]string, int, int) {
+func getPage(strs []types.File, page, pageSize int) ([]types.File, int, int) {
 	total := len(strs)
 	if page < 1 {
 		page = 1
@@ -652,4 +669,12 @@ func getPage(strs []string, page, pageSize int) ([]string, int, int) {
 	}
 
 	return strs[startIndex:endIndex], prevPage, nextPage
+}
+
+func infoToFile(info fs.FileInfo) types.File {
+	return types.File{
+		Name:    info.Name(),
+		Size:    humanize.Bytes(uint64(info.Size())),
+		ModTime: info.ModTime(),
+	}
 }

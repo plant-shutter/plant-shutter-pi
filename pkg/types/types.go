@@ -1,6 +1,10 @@
 package types
 
-import "github.com/vladimirvivien/go4vl/v4l2"
+import (
+	"time"
+
+	"github.com/vladimirvivien/go4vl/v4l2"
+)
 
 type VideoSetting struct {
 	Enable   bool `json:"enable"`
@@ -9,3 +13,9 @@ type VideoSetting struct {
 }
 
 type CameraSettings map[v4l2.CtrlID]v4l2.CtrlValue
+
+type File struct {
+	Name    string    `json:"name"`
+	Size    string    `json:"size"`
+	ModTime time.Time `json:"modTime"`
+}
