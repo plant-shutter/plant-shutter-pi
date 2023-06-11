@@ -287,9 +287,8 @@ func createProject(c *gin.Context) {
 		return
 	}
 
-	if t := utils.MsToDuration(p.Interval); t < consts.MinInterval {
-		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %s less than %s", t, consts.MinInterval)))
-		return
+	if p.Interval < consts.MinInterval {
+		p.Interval = consts.MinInterval
 	}
 	if p.Name == runningProjectRouterKey {
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project name cannot be %s", p.Name)))

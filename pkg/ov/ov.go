@@ -9,8 +9,8 @@ import (
 
 type NewProject struct {
 	Name     string             `json:"name" binding:"required"`
-	Info     string             `json:"info" binding:"required"`
-	Interval int                `json:"interval" binding:"required"`
+	Info     string             `json:"info"`
+	Interval int                `json:"interval"`
 	Video    types.VideoSetting `json:"video"`
 }
 
