@@ -1,7 +1,6 @@
 package ps
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -43,15 +42,16 @@ func MemoryStatus() (Memory, error) {
 	}, nil
 }
 
-func DiskUsage(path string) (used, total uint64, usedPercent float64, err error) {
+func DiskUsage(path string) (used, free, total uint64, usedPercent float64, err error) {
 	usage, err := disk.Usage(path)
 	if err != nil {
 		return
 	}
 	used = usage.Used
+	free = usage.Free
 	usedPercent = usage.UsedPercent
 	total = usage.Total
-	log.Println(usage)
+
 	return
 }
 

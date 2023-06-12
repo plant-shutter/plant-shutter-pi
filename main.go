@@ -217,7 +217,7 @@ func resetConfig(c *gin.Context) {
 }
 
 func getDiskUsage(c *gin.Context) {
-	used, total, usedPercent, err := ps.DiskUsage(*storageDir)
+	used, free, total, usedPercent, err := ps.DiskUsage(*storageDir)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -225,6 +225,7 @@ func getDiskUsage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, jsend.Success(map[string]any{
 		"used":        humanize.Bytes(used),
+		"free":        humanize.Bytes(free),
 		"total":       humanize.Bytes(total),
 		"usedPercent": usedPercent,
 	}))
