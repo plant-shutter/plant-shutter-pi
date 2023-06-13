@@ -1,6 +1,8 @@
 package ov
 
 import (
+	"time"
+
 	"github.com/vladimirvivien/go4vl/v4l2"
 
 	"plant-shutter-pi/pkg/storage/project"
@@ -61,4 +63,7 @@ type Project struct {
 	*project.Project
 	Running   bool   `json:"running"`
 	DiskUsage string `json:"diskUsage"`
+
+	StartedAt *time.Time `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt"`
 }

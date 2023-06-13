@@ -22,6 +22,7 @@ import (
 
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
+	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/types"
 
 	"plant-shutter-pi/pkg/camera"
@@ -242,7 +243,14 @@ func getProject(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, jsend.Success(p))
+	runningP := sch.GetProject()
+	ovProject, err := fillOvProject(p, runningP)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(ovProject))
 	return
 }
 
@@ -262,23 +270,37 @@ func listProject(c *gin.Context) {
 	res := make([]ov.Project, 0)
 	runningP := sch.GetProject()
 	for _, p := range projects {
-		usage, err := ps.DirDiskUsage(p.GetRootPath())
+		ovProject, err := fillOvProject(p, runningP)
 		if err != nil {
 			internalErr(c, err)
 			return
 		}
-
-		var o ov.Project
-		o.Project = p
-		o.DiskUsage = humanize.Bytes(uint64(usage))
-		if runningP != nil && runningP.Name == p.Name {
-			o.Running = true
-		}
-		res = append(res, o)
+		res = append(res, *ovProject)
 	}
 
 	c.JSON(http.StatusOK, jsend.Success(res))
 	return
+}
+
+func fillOvProject(p, runningP *project.Project) (*ov.Project, error) {
+	usage, err := ps.DirDiskUsage(p.GetRootPath())
+	if err != nil {
+		return nil, err
+	}
+	info, err := p.LoadImageInfo()
+	if err != nil {
+		return nil, err
+	}
+	var o ov.Project
+	o.Project = p
+	o.DiskUsage = humanize.Bytes(uint64(usage))
+	if runningP != nil && runningP.Name == p.Name {
+		o.Running = true
+	}
+	o.StartedAt = info.StartedAt
+	o.EndedAt = info.UpdateAt
+
+	return &o, nil
 }
 
 func createProject(c *gin.Context) {
@@ -379,6 +401,11 @@ func updateProject(c *gin.Context) {
 		return
 	}
 	if p.Running != nil {
+		runningP := sch.GetProject()
+		if runningP != nil {
+			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running, please stop first", runningP.Name)))
+			return
+		}
 		if *p.Running {
 			logger.Info("restore camera settings")
 			camera.ApplySettings(dev, pj.Camera)

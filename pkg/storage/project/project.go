@@ -43,13 +43,14 @@ type ImagesInfo struct {
 	MaxNumber   int    `json:"maxNumber"`
 	LatestImage string `json:"latestImage"`
 
-	UpdateAt time.Time `json:"updateAt"`
+	StartedAt *time.Time `json:"startedAt"`
+	UpdateAt  *time.Time `json:"updateAt"`
 }
 
 type VideoInfo struct {
 	MaxNumber int `json:"maxNumber"`
 
-	UpdateAt time.Time `json:"updateAt"`
+	UpdateAt *time.Time `json:"updateAt"`
 }
 
 func (p *Project) SetRootDir(dir string) {
@@ -85,7 +86,7 @@ func New(name, info string, interval int, rootDir string, camera types.CameraSet
 }
 
 func (p *Project) SaveImage(image []byte) error {
-	info, err := p.loadImageInfo()
+	info, err := p.LoadImageInfo()
 	if err != nil {
 		return err
 	}
@@ -140,7 +141,7 @@ func (p *Project) NewVideoBuilder() error {
 }
 
 func (p *Project) LatestImageName() (string, error) {
-	info, err := p.loadImageInfo()
+	info, err := p.LoadImageInfo()
 	if err != nil {
 		return "", err
 	}
@@ -149,7 +150,7 @@ func (p *Project) LatestImageName() (string, error) {
 }
 
 func (p *Project) LatestImage() ([]byte, error) {
-	info, err := p.loadImageInfo()
+	info, err := p.LoadImageInfo()
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +212,7 @@ func (p *Project) generateVideoName(number int) string {
 	return fmt.Sprintf("%s-%06d%s", p.Name, number, consts.DefaultVideoExt)
 }
 
-func (p *Project) loadImageInfo() (*ImagesInfo, error) {
+func (p *Project) LoadImageInfo() (*ImagesInfo, error) {
 	data, err := os.ReadFile(p.getImageInfoPath())
 	if err != nil {
 		return nil, fmt.Errorf("read image info err: %w", err)
@@ -225,7 +226,11 @@ func (p *Project) loadImageInfo() (*ImagesInfo, error) {
 }
 
 func (p *Project) dumpImageInfo(info *ImagesInfo) error {
-	info.UpdateAt = time.Now()
+	t := time.Now()
+	info.UpdateAt = &t
+	if info.StartedAt == nil {
+		info.StartedAt = &t
+	}
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
@@ -248,7 +253,8 @@ func (p *Project) loadVideoInfo() (*VideoInfo, error) {
 }
 
 func (p *Project) dumpVideoInfo(info *VideoInfo) error {
-	info.UpdateAt = time.Now()
+	t := time.Now()
+	info.UpdateAt = &t
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
