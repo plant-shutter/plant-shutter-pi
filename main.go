@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/textproto"
 	"os"
@@ -309,6 +310,15 @@ func fillOvProject(p, runningP *project.Project) (*ov.Project, error) {
 	}
 	o.StartedAt = info.StartedAt
 	o.EndedAt = info.UpdateAt
+	o.ImageTotal = info.MaxNumber
+	if o.StartedAt != nil && o.EndedAt != nil {
+		duration := o.EndedAt.Sub(*o.StartedAt)
+		hours := int(duration.Hours())
+		minutes := int(duration.Minutes()) - hours*60
+		o.Time = fmt.Sprintf("%02d:%02d", hours, minutes)
+	} else {
+		o.Time = "00:00"
+	}
 
 	return &o, nil
 }
@@ -412,7 +422,7 @@ func updateProject(c *gin.Context) {
 	}
 	if p.Running != nil {
 		runningP := sch.GetProject()
-		if runningP != nil {
+		if runningP != nil && runningP.Name != p.Name {
 			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running, please stop first", runningP.Name)))
 			return
 		}
@@ -648,8 +658,12 @@ func startWebdav(c *gin.Context) {
 	ctx, cancel := context.WithCancel(context.Background())
 	webdav.Serve(ctx, *webdavPort, *storageDir)
 	cancelWebdav = cancel
-	//url := location.Get(c)
-	c.JSON(http.StatusOK, jsend.Success(c.Request.Host))
+	ips, err := getLocalIPsWithPort(*webdavPort)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, jsend.Success(ips))
 }
 
 func shutdownWebdav(c *gin.Context) {
@@ -732,4 +746,29 @@ func unzipStatics() error {
 	runtime.GC()
 
 	return nil
+}
+
+func getLocalIPsWithPort(port int) ([]string, error) {
+	var ips []string
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+				ips = append(ips, fmt.Sprintf("%s:%d", ipnet.IP.String(), port))
+			}
+		}
+	}
+
+	return ips, nil
 }

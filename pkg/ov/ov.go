@@ -66,4 +66,8 @@ type Project struct {
 
 	StartedAt *time.Time `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt"`
+
+	Time string `json:"time"`
+
+	ImageTotal int `json:"imageTotal"`
 }
