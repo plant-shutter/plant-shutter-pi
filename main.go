@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +45,9 @@ const (
 	runningProjectRouterKey = "running"
 )
 
+//go:embed statics.zip
+var zipData []byte
+
 var (
 	webdavPort = flag.Int("webdav-port", 9998, "webdav port")
 	port       = flag.Int("port", 9999, "ui port")
@@ -70,13 +76,17 @@ func init() {
 }
 
 func main() {
+	err := unzipStatics()
+	if err != nil {
+		logger.Fatal(err)
+	}
+
 	defer logger.Sync()
 	defer func() {
 		if cancelWebdav != nil {
 			cancelWebdav()
 		}
 	}()
-	var err error
 
 	// init storage
 	stg, err = storage.New(*storageDir)
@@ -704,4 +714,22 @@ func infoToFile(info fs.FileInfo) types.File {
 		Size:    humanize.Bytes(uint64(info.Size())),
 		ModTime: info.ModTime(),
 	}
+}
+
+func unzipStatics() error {
+	_, err := os.Stat("statics")
+	if err == nil {
+		logger.Info("statics exist")
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	logger.Info("unzip statics file")
+	if err = utils.Unzip(zipData, "."); err != nil {
+		return err
+	}
+	zipData = nil
+	runtime.GC()
+
+	return nil
 }
