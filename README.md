@@ -25,13 +25,32 @@
 docker build --platform "linux/arm/v6" --output "./bin"  .
 ```
 
+## 启用RNDIS
+
+> https://learn.adafruit.com/turning-your-raspberry-pi-zero-into-a-usb-gadget/ethernet-gadget
+
+```bash
+vi /boot/config.txt
+# 最后一行新增
+dtoverlay=dwc2
+
+vi /etc/modules
+# rootwait后添加空格和如下内容
+modules-load=dwc2,g_ether
+```
+
+安装RNDIS驱动
+
+通过usb连接树莓派
+
 ## Todo
 
 - [x] 图片存储结构
-- [ ] 堆叠视频
-- [ ] 相机管理
-- [ ] 相机参数调节
-- [ ] 任务调度与状态管理
+- [x] 堆叠视频
+- [x] 相机管理
+- [x] 相机参数调节
+- [x] 任务调度与状态管理
+- [x] 测试RNDIS
 
 ## Driver
 
