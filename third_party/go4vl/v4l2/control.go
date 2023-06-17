@@ -176,19 +176,16 @@ func makeControl(qryCtrl C.struct_v4l2_queryctrl) Control {
 }
 
 func makeCtrlMenu(cType CtrlType, qryMenu C.struct_v4l2_querymenu) ControlMenuItem {
-	if cType == CtrlTypeIntegerMenu {
-		val := binary.LittleEndian.Uint64((*[8]byte)(unsafe.Pointer(&qryMenu.anon0[0]))[:])
-
-		return ControlMenuItem{
-			ID:    uint32(qryMenu.id),
-			Index: uint32(qryMenu.index),
-			Name:  strconv.FormatInt(int64(val), 10),
-		}
-	}
-
-	return ControlMenuItem{
+	item := ControlMenuItem{
 		ID:    uint32(qryMenu.id),
 		Index: uint32(qryMenu.index),
-		Name:  C.GoString((*C.char)(unsafe.Pointer(&qryMenu.anon0[0]))),
 	}
+	if cType == CtrlTypeIntegerMenu {
+		val := binary.LittleEndian.Uint64((*[8]byte)(unsafe.Pointer(&qryMenu.anon0[0]))[:])
+		item.Name = strconv.FormatInt(int64(val), 10)
+	} else {
+		item.Name = C.GoString((*C.char)(unsafe.Pointer(&qryMenu.anon0[0])))
+	}
+
+	return item
 }
