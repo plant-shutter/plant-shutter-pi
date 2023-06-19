@@ -131,9 +131,13 @@ func main() {
 	projectRouter.GET("/:name/image", listProjectImages)
 	projectRouter.GET("/:name/image/latest", projectLatestImage)
 	projectRouter.GET("/:name/image/:image", getProjectImage)
+	projectRouter.DELETE("/:name/image/:image", deleteProjectImage)
+	projectRouter.DELETE("/:name/image", deleteProjectImages)
 
 	projectRouter.GET("/:name/video", listProjectVideos)
 	projectRouter.GET("/:name/video/:video", getProjectVideo)
+	projectRouter.DELETE("/:name/video/:video", deleteProjectVideo)
+	projectRouter.DELETE("/:name/video", deleteProjectVideos)
 
 	// init camera
 	if err = startDevice(*width, *height); err != nil {
@@ -309,7 +313,7 @@ func fillOvProject(p, runningP *project.Project) (*ov.Project, error) {
 		o.Running = true
 	}
 	o.StartedAt = info.StartedAt
-	o.EndedAt = info.UpdateAt
+	o.EndedAt = info.EndedAt
 	o.ImageTotal = info.MaxNumber
 	if o.StartedAt != nil && o.EndedAt != nil {
 		duration := o.EndedAt.Sub(*o.StartedAt)
@@ -528,6 +532,45 @@ func getProjectImage(c *gin.Context) {
 	c.Writer.Write(image)
 }
 
+func deleteProjectImage(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+	name := c.Param("image")
+	imagePath := p.GetImagePath(name)
+	if err = os.Remove(imagePath); err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("remove video %s success", name)))
+}
+
+func deleteProjectImages(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+
+	if err = p.ClearImages(); err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success("remove images success"))
+}
+
 func listProjectImages(c *gin.Context) {
 	p, err := stg.GetProject(c.Param("name"))
 	if err != nil {
@@ -579,6 +622,45 @@ func getProjectVideo(c *gin.Context) {
 	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", videoName))
 	c.Writer.Header().Set("Content-Type", "application/octet-stream")
 	c.File(videoPath)
+}
+
+func deleteProjectVideo(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+	videoName := c.Param("video")
+	videoPath := p.GetVideoPath(videoName)
+	if err = os.Remove(videoPath); err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("remove video %s success", videoName)))
+}
+
+func deleteProjectVideos(c *gin.Context) {
+	p, err := stg.GetProject(c.Param("name"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if p == nil {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+		return
+	}
+
+	if err = p.ClearVideos(); err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success("remove videos success"))
 }
 
 func listProjectVideos(c *gin.Context) {

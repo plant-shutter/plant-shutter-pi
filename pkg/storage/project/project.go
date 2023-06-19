@@ -44,7 +44,9 @@ type ImagesInfo struct {
 	LatestImage string `json:"latestImage"`
 
 	StartedAt *time.Time `json:"startedAt"`
-	UpdateAt  *time.Time `json:"updateAt"`
+	EndedAt   *time.Time `json:"endedAt"`
+
+	UpdateAt *time.Time `json:"updateAt"`
 }
 
 type VideoInfo struct {
@@ -67,22 +69,35 @@ func New(name, info string, interval int, rootDir string, camera types.CameraSet
 		CreatedAt: time.Now(),
 	}
 	p.SetRootDir(rootDir)
+	err := p.initStorage()
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+func (p *Project) initStorage() error {
 	err := utils.MkdirAll(
 		p.getImageDirPath(),
 		p.getVideoDirPath(),
 	)
 	if err != nil {
-		return p, err
+		return err
 	}
 
-	if err = p.dumpImageInfo(&ImagesInfo{}); err != nil {
-		return p, err
+	if _, err = p.LoadImageInfo(); err != nil {
+		if err = p.dumpImageInfo(&ImagesInfo{}, false); err != nil {
+			return err
+		}
 	}
-	if err = p.dumpVideoInfo(&VideoInfo{}); err != nil {
-		return p, err
+	if _, err = p.loadVideoInfo(); err != nil {
+		if err = p.dumpVideoInfo(&VideoInfo{}); err != nil {
+			return err
+		}
 	}
 
-	return p, nil
+	return nil
 }
 
 func (p *Project) SaveImage(image []byte) error {
@@ -97,7 +112,7 @@ func (p *Project) SaveImage(image []byte) error {
 
 	info.MaxNumber++
 	info.LatestImage = name
-	if err = p.dumpImageInfo(info); err != nil {
+	if err = p.dumpImageInfo(info, true); err != nil {
 		return err
 	}
 	if p.Video.Enable {
@@ -185,6 +200,24 @@ func (p *Project) Clear() error {
 	return os.RemoveAll(p.rootDir)
 }
 
+func (p *Project) ClearImages() error {
+	err := os.RemoveAll(p.getImageDirPath())
+	if err != nil {
+		return err
+	}
+
+	return p.initStorage()
+}
+
+func (p *Project) ClearVideos() error {
+	err := os.RemoveAll(p.getVideoDirPath())
+	if err != nil {
+		return err
+	}
+
+	return p.initStorage()
+}
+
 func (p *Project) Close() error {
 	if p.video != nil {
 		return p.video.Close()
@@ -225,12 +258,16 @@ func (p *Project) LoadImageInfo() (*ImagesInfo, error) {
 	return info, nil
 }
 
-func (p *Project) dumpImageInfo(info *ImagesInfo) error {
+func (p *Project) dumpImageInfo(info *ImagesInfo, newImage bool) error {
 	t := time.Now()
 	info.UpdateAt = &t
-	if info.StartedAt == nil {
-		info.StartedAt = &t
+	if newImage {
+		if info.StartedAt == nil {
+			info.StartedAt = &t
+		}
+		info.EndedAt = &t
 	}
+
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
