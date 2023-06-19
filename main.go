@@ -549,7 +549,7 @@ func deleteProjectImage(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("remove video %s success", name)))
+	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("remove image %s success", name)))
 }
 
 func deleteProjectImages(c *gin.Context) {
