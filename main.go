@@ -159,6 +159,9 @@ func startDevice(w, h int) error {
 		*devName,
 		device.WithBufferSize(0),
 	)
+	if err != nil {
+		return err
+	}
 	camera.InitControls(dev)
 	// todo: get max pixel size
 	//if w <= 0 || h <= 0 {
