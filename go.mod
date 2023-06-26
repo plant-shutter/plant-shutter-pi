@@ -3,6 +3,7 @@ module plant-shutter-pi
 go 1.19
 
 require (
+	github.com/beevik/ntp v1.1.1
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.9.0
@@ -12,7 +13,7 @@ require (
 	github.com/vincent-vinf/go-jsend v0.1.1
 	github.com/vladimirvivien/go4vl v0.0.5
 	go.uber.org/zap v1.24.0
-	golang.org/x/net v0.9.0
+	golang.org/x/net v0.10.0
 )
 
 replace github.com/vladimirvivien/go4vl => ./third_party/go4vl
@@ -44,7 +45,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/crypto v0.8.0 // indirect
-	golang.org/x/sys v0.8.0 // indirect
+	golang.org/x/sys v0.9.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

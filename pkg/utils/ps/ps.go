@@ -21,25 +21,17 @@ func CPUStatus() (CPU, error) {
 	}, nil
 }
 
-func MemoryStatus() (Memory, error) {
+func MemoryStatus() (used, free, total uint64, usedPercent float64, err error) {
 	memory, err := mem.VirtualMemory()
 	if err != nil {
-		return Memory{}, err
-	}
-	swapMemory, err := mem.SwapMemory()
-	if err != nil {
-		return Memory{}, err
+		return
 	}
 
-	return Memory{
-		Total:       memory.Total,
-		Used:        memory.Used,
-		UsedPercent: memory.UsedPercent,
-
-		SwapTotal:       swapMemory.Total,
-		SwapUsed:        swapMemory.Used,
-		SwapUsedPercent: swapMemory.UsedPercent,
-	}, nil
+	used = memory.Used
+	free = memory.Free
+	total = memory.Total
+	usedPercent = memory.UsedPercent
+	return
 }
 
 func DiskUsage(path string) (used, free, total uint64, usedPercent float64, err error) {
@@ -75,14 +67,4 @@ func DirDiskUsage(path string) (int64, error) {
 
 type CPU struct {
 	Percent float64
-}
-
-type Memory struct {
-	Total       uint64  `json:"total"`
-	Used        uint64  `json:"used"`
-	UsedPercent float64 `json:"usedPercent"`
-
-	SwapTotal       uint64  `json:"swapTotal"`
-	SwapUsed        uint64  `json:"swapUsed"`
-	SwapUsedPercent float64 `json:"swapUsedPercent"`
 }

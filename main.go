@@ -6,18 +6,21 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/beevik/ntp"
 	"io/fs"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"net/textproto"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/gin-gonic/gin"
@@ -117,7 +120,9 @@ func main() {
 	deviceRouter.GET("/config", listConfig)
 	deviceRouter.PUT("/config", updateConfig)
 	deviceRouter.PUT("/config/reset", resetConfig)
+	deviceRouter.PUT("/date", updateDate)
 	deviceRouter.GET("/disk", getDiskUsage)
+	deviceRouter.GET("/memory", getMemUsage)
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
@@ -139,6 +144,11 @@ func main() {
 	projectRouter.DELETE("/:name/video/:video", deleteProjectVideo)
 	projectRouter.DELETE("/:name/video", deleteProjectVideos)
 
+	ips, err := getLocalIPsWithPort(*port)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	logger.Info("listen ", ips)
 	// init camera
 	if err = startDevice(*width, *height); err != nil {
 		logger.Error(err)
@@ -235,8 +245,48 @@ func resetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, jsend.Success(configs))
 }
 
+func updateDate(c *gin.Context) {
+	//start := time.Now()
+	t := ov.Time{}
+	err := c.Bind(&t)
+	if err != nil {
+		return
+	}
+	//if n := t.NewTime.Sub(time.Now()); n > -time.Second && n < time.Second {
+	//	c.JSON(http.StatusOK, jsend.Success("if the time difference is less than one second, skip the time setting"))
+	//	return
+	//}
+	//newTime, err := getNTPTime()
+	//if err != nil {
+	//	logger.Warnf("get ntp time failed, err: %s", err)
+	//	newTime = t.NewTime.Add(time.Now().Sub(start))
+	//}
+	err = setSystemTime(t.NewTime)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	logger.Info("now: ", time.Now())
+	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("successfully set time to %s", t.NewTime)))
+}
+
 func getDiskUsage(c *gin.Context) {
 	used, free, total, usedPercent, err := ps.DiskUsage(*storageDir)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+		"used":        humanize.Bytes(used),
+		"free":        humanize.Bytes(free),
+		"total":       humanize.Bytes(total),
+		"usedPercent": usedPercent,
+	}))
+}
+
+func getMemUsage(c *gin.Context) {
+	used, free, total, usedPercent, err := ps.MemoryStatus()
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -336,9 +386,12 @@ func createProject(c *gin.Context) {
 	if err != nil {
 		return
 	}
-
-	if p.Interval < consts.MinInterval {
-		p.Interval = consts.MinInterval
+	if p.Interval == nil {
+		i := 124800
+		p.Interval = &i
+	}
+	if *p.Interval < consts.MinInterval {
+		*p.Interval = consts.MinInterval
 	}
 	if p.Name == runningProjectRouterKey {
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project name cannot be %s", p.Name)))
@@ -360,7 +413,17 @@ func createProject(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	pj, err = stg.NewProject(p.Name, p.Info, p.Interval, s, p.Video)
+	if p.Video == nil {
+		p.Video = &types.VideoSetting{
+			Enable:             true,
+			FPS:                30,
+			MaxImage:           450,
+			ShootingDays:       6.5,
+			TotalVideoLength:   2.5,
+			PreviewVideoLength: 15,
+		}
+	}
+	pj, err = stg.NewProject(p.Name, p.Info, *p.Interval, s, *p.Video)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -856,4 +919,26 @@ func getLocalIPsWithPort(port int) ([]string, error) {
 	}
 
 	return ips, nil
+}
+
+func setSystemTime(newTime time.Time) error {
+	cmd := exec.Command("date", "-s", newTime.Format("2006-01-02 15:04:05"))
+	output, err := cmd.CombinedOutput()
+	logger.Infof("set system time: %s", string(output))
+	return err
+}
+
+func getNTPTime() (time.Time, error) {
+	r, err := ntp.QueryWithOptions("pool.ntp.org", ntp.QueryOptions{})
+	if err != nil {
+		return time.Now(), err
+	}
+
+	err = r.Validate()
+	if err != nil {
+		return time.Now(), err
+	}
+
+	// Use the clock offset to calculate the time.
+	return time.Now().Add(r.ClockOffset), nil
 }

@@ -10,10 +10,10 @@ import (
 )
 
 type NewProject struct {
-	Name     string             `json:"name" binding:"required"`
-	Info     string             `json:"info"`
-	Interval int                `json:"interval"`
-	Video    types.VideoSetting `json:"video"`
+	Name     string              `json:"name" binding:"required"`
+	Info     string              `json:"info"`
+	Interval *int                `json:"interval"`
+	Video    *types.VideoSetting `json:"video"`
 }
 
 type UpdateProject struct {
@@ -70,4 +70,8 @@ type Project struct {
 	Time string `json:"time"`
 
 	ImageTotal int `json:"imageTotal"`
+}
+
+type Time struct {
+	NewTime time.Time `json:"newTime" binding:"required"`
 }
