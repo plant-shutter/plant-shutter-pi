@@ -252,10 +252,10 @@ func updateDate(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	//if n := t.NewTime.Sub(time.Now()); n > -time.Second && n < time.Second {
-	//	c.JSON(http.StatusOK, jsend.Success("if the time difference is less than one second, skip the time setting"))
-	//	return
-	//}
+	if n := t.NewTime.Sub(time.Now()); n > -time.Second && n < time.Second {
+		c.JSON(http.StatusOK, jsend.Success("if the time difference is less than one second, skip the time setting"))
+		return
+	}
 	//newTime, err := getNTPTime()
 	//if err != nil {
 	//	logger.Warnf("get ntp time failed, err: %s", err)
