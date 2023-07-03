@@ -58,8 +58,8 @@ var (
 	storageDir = flag.String("dir", "./plant-project", "")
 	staticsDir = flag.String("statics", "./statics", "")
 	devName    = flag.String("dev", "/dev/video0", "")
-	width      = flag.Int("width", 3280, "")
-	height     = flag.Int("height", 2464, "")
+	width      = flag.Int("width", 0, "")
+	height     = flag.Int("height", 0, "")
 
 	cancelWebdav context.CancelFunc
 	cancelLock   sync.Mutex
@@ -123,6 +123,7 @@ func main() {
 	deviceRouter.PUT("/date", updateDate)
 	deviceRouter.GET("/disk", getDiskUsage)
 	deviceRouter.GET("/memory", getMemUsage)
+	deviceRouter.GET("/camera", getCameraStatus)
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
@@ -176,15 +177,12 @@ func startDevice(w, h int) error {
 		return err
 	}
 	camera.InitControls(dev)
-	// todo: get max pixel size
-	//if w <= 0 || h <= 0 {
-	//	info, err := v4l2.GetAllFormatFrameSizes(dev.Fd())
-	//	if err != nil {
-	//		return err
-	//	}
-	//
-	//	logger.Info(info)
-	//}
+	if w <= 0 || h <= 0 {
+		w, h, err = getMaxSize()
+		if err != nil {
+			return err
+		}
+	}
 	err = dev.SetPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: uint32(w), Height: uint32(h)})
 	if err != nil {
 		return err
@@ -312,6 +310,16 @@ func getMemUsage(c *gin.Context) {
 		"free":        humanize.Bytes(free),
 		"total":       humanize.Bytes(total),
 		"usedPercent": usedPercent,
+	}))
+}
+
+func getCameraStatus(c *gin.Context) {
+	available := false
+	if dev != nil {
+		available = true
+	}
+	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+		"available": available,
 	}))
 }
 
@@ -972,4 +980,22 @@ func checkDevice() error {
 	}
 
 	return nil
+}
+
+func getMaxSize() (width, height int, err error) {
+	sizes, err := v4l2.GetAllFormatFrameSizes(dev.Fd())
+	if err != nil {
+		panic(err)
+	}
+	for _, size := range sizes {
+		if size.PixelFormat == v4l2.PixelFmtJPEG {
+			width = int(size.Size.MaxWidth)
+			height = int(size.Size.MaxHeight)
+
+			return
+		}
+	}
+	err = fmt.Errorf("unable to determine the maximum pixels of the camera")
+
+	return
 }
