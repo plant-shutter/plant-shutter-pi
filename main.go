@@ -151,10 +151,13 @@ func main() {
 	logger.Info("listen ", ips)
 	// init camera
 	if err = startDevice(*width, *height); err != nil {
-		logger.Error(err)
-		return
+		logger.Error(fmt.Sprintf("camera %s is not ready, related functions will not be available, err: %s", *devName, err))
 	}
-	defer dev.Close()
+	defer func() {
+		if dev != nil {
+			dev.Close()
+		}
+	}()
 
 	// init schedule
 	sch = schedule.New(frames)
@@ -197,6 +200,10 @@ func startDevice(w, h int) error {
 }
 
 func listConfig(c *gin.Context) {
+	if err := checkDevice(); err != nil {
+		internalErr(c, err)
+		return
+	}
 	configs, err := camera.GetKnownCtrlConfigs(dev)
 	if err != nil {
 		internalErr(c, err)
@@ -206,6 +213,10 @@ func listConfig(c *gin.Context) {
 }
 
 func updateConfig(c *gin.Context) {
+	if err := checkDevice(); err != nil {
+		internalErr(c, err)
+		return
+	}
 	if p := sch.GetProject(); p != nil {
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running", p.Name)))
 	}
@@ -225,6 +236,10 @@ func updateConfig(c *gin.Context) {
 }
 
 func resetConfig(c *gin.Context) {
+	if err := checkDevice(); err != nil {
+		internalErr(c, err)
+		return
+	}
 	configs, err := camera.GetKnownCtrlConfigs(dev)
 	if err != nil {
 		internalErr(c, err)
@@ -381,6 +396,10 @@ func fillOvProject(p, runningP *project.Project) (*ov.Project, error) {
 }
 
 func createProject(c *gin.Context) {
+	if err := checkDevice(); err != nil {
+		internalErr(c, err)
+		return
+	}
 	var p ov.NewProject
 	err := c.Bind(&p)
 	if err != nil {
@@ -434,6 +453,10 @@ func createProject(c *gin.Context) {
 }
 
 func updateProject(c *gin.Context) {
+	if err := checkDevice(); err != nil {
+		internalErr(c, err)
+		return
+	}
 	var p ov.UpdateProject
 	err := c.Bind(&p)
 	if err != nil {
@@ -941,4 +964,12 @@ func getNTPTime() (time.Time, error) {
 
 	// Use the clock offset to calculate the time.
 	return time.Now().Add(r.ClockOffset), nil
+}
+
+func checkDevice() error {
+	if dev == nil {
+		return fmt.Errorf("camera %s is not ready, related functions will not be available", *devName)
+	}
+
+	return nil
 }
