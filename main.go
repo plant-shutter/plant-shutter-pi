@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/beevik/ntp"
 	"io/fs"
 	"mime/multipart"
 	"net"
@@ -22,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/beevik/ntp"
 	"github.com/dustin/go-humanize"
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
@@ -53,8 +53,8 @@ const (
 var zipData []byte
 
 var (
-	webdavPort = flag.Int("webdav-port", 9998, "webdav port")
-	port       = flag.Int("port", 9999, "ui port")
+	webdavPort = flag.Int("webdav-port", 8080, "webdav port")
+	port       = flag.Int("port", 80, "ui port")
 	storageDir = flag.String("dir", "./plant-project", "")
 	staticsDir = flag.String("statics", "./statics", "")
 	devName    = flag.String("dev", "/dev/video0", "")
@@ -160,6 +160,7 @@ func main() {
 		}
 	}()
 
+	startWebdavSVC()
 	// init schedule
 	sch = schedule.New(frames)
 	defer sch.Clear()
@@ -834,15 +835,19 @@ func startWebdav(c *gin.Context) {
 		c.JSON(http.StatusOK, jsend.Success("the webdav service is already enabled"))
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	webdav.Serve(ctx, *webdavPort, *storageDir)
-	cancelWebdav = cancel
+	startWebdavSVC()
 	ips, err := getLocalIPsWithPort(*webdavPort)
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, jsend.Success(ips))
+}
+
+func startWebdavSVC() {
+	ctx, cancel := context.WithCancel(context.Background())
+	webdav.Serve(ctx, *webdavPort, *storageDir)
+	cancelWebdav = cancel
 }
 
 func shutdownWebdav(c *gin.Context) {

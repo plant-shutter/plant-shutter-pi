@@ -50,7 +50,7 @@ func main() {
 
 	camera, err := device.Open(
 		devName,
-		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 1280, Height: 720}),
+		device.WithPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: 3280, Height: 2464}),
 	)
 
 	if err != nil {

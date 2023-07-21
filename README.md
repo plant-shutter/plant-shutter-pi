@@ -10,10 +10,10 @@
 
 ## Features
 
-* 支持生成**预览视频**
 * **实时预览**调参
 * 支持使用**WebDAV**共享拍摄的图片
 * 使用`Video for Linux 2` (**v4l2**) API
+* 支持生成**预览视频**
 * **All-In-One**，开箱即用
 
 ## QuickStart
