@@ -804,6 +804,7 @@ func realtimeVideo(c *gin.Context) {
 	partHeader.Add("Content-Type", "image/jpeg")
 
 	for frame := range frames {
+		logger.Info("get realtime frame")
 		partWriter, err := mimeWriter.CreatePart(partHeader)
 		if err != nil {
 			logger.Errorf("failed to create multi-part writer: %s", err)
