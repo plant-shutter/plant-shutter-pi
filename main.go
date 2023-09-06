@@ -75,8 +75,6 @@ var (
 func init() {
 	logger = utils.GetLogger()
 	flag.Parse()
-	consts.Width = *width
-	consts.Height = *height
 }
 
 func main() {
@@ -184,6 +182,8 @@ func startDevice(w, h int) error {
 			return err
 		}
 	}
+	consts.Width = w
+	consts.Height = h
 	err = dev.SetPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: uint32(w), Height: uint32(h)})
 	if err != nil {
 		return err

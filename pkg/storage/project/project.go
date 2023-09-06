@@ -123,13 +123,15 @@ func (p *Project) SaveImage(image []byte) error {
 			}
 		} else if p.video.GetCnt() >= p.Video.MaxImage {
 			logger.Info("save video")
-			_ = p.video.Close()
+			err = p.video.Close()
+			if err != nil {
+				logger.Errorf("vide close err: %s", err)
+			}
 			if err = p.NewVideoBuilder(); err != nil {
 				return err
 			}
 		}
 
-		logger.Info("add image to video")
 		if err = p.video.Add(image); err != nil {
 			return err
 		}

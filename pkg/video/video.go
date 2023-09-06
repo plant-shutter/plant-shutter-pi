@@ -1,8 +1,6 @@
 package video
 
 import (
-	"log"
-
 	"github.com/icza/mjpeg"
 )
 
@@ -35,7 +33,6 @@ func (b *Builder) Add(frame []byte) error {
 		return err
 	}
 	b.cnt++
-	log.Printf("cnt: %d, len: %d", b.cnt, len(frame))
 
 	return nil
 }
