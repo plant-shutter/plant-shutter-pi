@@ -5,6 +5,8 @@
 一个简单易用的延时摄影（TimeLapse）程序。
 
 > 成片B站视频
+> https://www.bilibili.com/video/BV1wZ42127U3/?spm_id_from=333.999.0.0
+
 
 ***
 
