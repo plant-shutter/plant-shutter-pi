@@ -95,7 +95,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	defer stg.Close()
 
 	// init gin
 	r := gin.New()

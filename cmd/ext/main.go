@@ -20,14 +20,14 @@ var (
 
 func main() {
 	devName := "/dev/video0"
-	flag.StringVar(&devName, "d", devName, "device name (path)")
 	var list bool
-	flag.BoolVar(&list, "list", list, "List current device controls")
 	var ctrlName string
-	flag.StringVar(&ctrlName, "c", ctrlName, fmt.Sprintf("Contrl name to set or get (supported %v)", controls))
 	ctrlVal := math.MinInt32
-	flag.IntVar(&ctrlVal, "v", ctrlVal, fmt.Sprintf("Value for selected control (supported %v)", controls))
 
+	flag.StringVar(&devName, "d", devName, "device name (path)")
+	flag.BoolVar(&list, "list", list, "List current device controls")
+	flag.StringVar(&ctrlName, "c", ctrlName, fmt.Sprintf("Contrl name to set or get (supported %v)", controls))
+	flag.IntVar(&ctrlVal, "v", ctrlVal, fmt.Sprintf("Value for selected control (supported %v)", controls))
 	flag.Parse()
 
 	// open device

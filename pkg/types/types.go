@@ -2,8 +2,6 @@ package types
 
 import (
 	"time"
-
-	"github.com/vladimirvivien/go4vl/v4l2"
 )
 
 type VideoSetting struct {
@@ -15,7 +13,7 @@ type VideoSetting struct {
 	PreviewVideoLength float32 `json:"previewVideoLength"`
 }
 
-type CameraSettings map[v4l2.CtrlID]v4l2.CtrlValue
+type CameraSettings map[int32]int32
 
 type File struct {
 	Name    string    `json:"name"`

@@ -49,7 +49,7 @@ func InitControls(dev *device.Device) {
 
 func ApplySettings(dev *device.Device, settings types.CameraSettings) {
 	for k, v := range settings {
-		if err := dev.SetControlValue(k, v); err != nil {
+		if err := dev.SetControlValue(v4l2.CtrlID(k), v); err != nil {
 			logger.Warnf("set ctrl(%d) to %d, err: %s", k, v, err)
 		}
 	}
@@ -80,7 +80,7 @@ func GetKnownCtrlSettings(dev *device.Device) (types.CameraSettings, error) {
 		if err != nil {
 			continue
 		}
-		res[ctrl.ID] = ctrl.Value
+		res[int32(ctrl.ID)] = ctrl.Value
 	}
 
 	return res, nil

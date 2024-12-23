@@ -38,10 +38,6 @@ func New(path string) (*Storage, error) {
 	return s, nil
 }
 
-func (s *Storage) Close() error {
-	return nil
-}
-
 // ListProjects without bind
 func (s *Storage) ListProjects() ([]*project.Project, error) {
 	data, err := os.ReadFile(s.getProjectInfoPath())
