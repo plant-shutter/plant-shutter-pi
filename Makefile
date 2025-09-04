@@ -1,2 +1,2 @@
 build:
-	@docker build --platform "linux/arm/v6" --output "./bin"  .
+	@docker build --platform "linux/arm64" --output "./bin"  .

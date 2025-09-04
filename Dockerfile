@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 FROM --platform=$BUILDPLATFORM crazymax/goxx:latest AS base
 
 ENV OUTPUT="plant-shutter"
