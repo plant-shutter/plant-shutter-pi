@@ -102,6 +102,7 @@ v4l2
 sudo raspi-config
 ```
 
+
 ## Other
 
 ### icon

@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -16,11 +17,9 @@ type Scheduler struct {
 	p      *project.Project
 	lock   sync.Mutex
 	logger *zap.SugaredLogger
-
-	stopCh chan struct{}
 }
 
-func New(input <-chan []byte) *Scheduler {
+func New(ctx context.Context, input <-chan []byte) *Scheduler {
 	t := time.NewTicker(time.Second)
 	t.Stop()
 
@@ -28,9 +27,8 @@ func New(input <-chan []byte) *Scheduler {
 		t:      t,
 		input:  input,
 		logger: utils.GetLogger(),
-		stopCh: make(chan struct{}),
 	}
-	s.startDeal()
+	s.startDeal(ctx)
 
 	return s
 }
@@ -55,10 +53,6 @@ func (s *Scheduler) Stop() {
 	s.lock.Unlock()
 }
 
-func (s *Scheduler) Clear() {
-	close(s.stopCh)
-}
-
 func (s *Scheduler) GetProject() *project.Project {
 	if s.p == nil {
 		return nil
@@ -67,7 +61,7 @@ func (s *Scheduler) GetProject() *project.Project {
 	return &*s.p
 }
 
-func (s *Scheduler) startDeal() {
+func (s *Scheduler) startDeal(ctx context.Context) {
 	go func(s *Scheduler) {
 		for {
 			select {
@@ -84,7 +78,7 @@ func (s *Scheduler) startDeal() {
 				}
 				s.lock.Unlock()
 				s.logger.Infof("scheduler: took %s to get the image", time.Now().Sub(start))
-			case <-s.stopCh:
+			case <-ctx.Done():
 				s.lock.Lock()
 				if s.p != nil {
 					_ = s.p.Close()

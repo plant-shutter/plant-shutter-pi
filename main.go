@@ -13,12 +13,13 @@ import (
 	"net/textproto"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
+	"syscall"
 	"time"
 
 	"github.com/beevik/ntp"
@@ -61,10 +62,8 @@ var (
 	width      = flag.Int("width", 0, "")
 	height     = flag.Int("height", 0, "")
 
-	cancelWebdav context.CancelFunc
-	cancelLock   sync.Mutex
-
-	logger *zap.SugaredLogger
+	logger       *zap.SugaredLogger
+	webdavServer *webdav.Webdav
 
 	stg    *storage.Storage
 	frames <-chan []byte
@@ -78,17 +77,22 @@ func init() {
 }
 
 func main() {
+	fmt.Println("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+	fmt.Println("┃              🌿  plant-shutter v0.1.0                        ┃")
+	fmt.Println("┃            Raspberry Pi Camera Automation                    ┃")
+	fmt.Println("┃  repo: https://github.com/plant-shutter/plant-shutter-pi     ┃")
+	fmt.Println("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
+	logger.Infof("\n")
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	err := unzipStatics()
 	if err != nil {
 		logger.Fatal(err)
 	}
 
 	defer logger.Sync()
-	defer func() {
-		if cancelWebdav != nil {
-			cancelWebdav()
-		}
-	}()
+	webdavServer = webdav.New(ctx, *webdavPort, *storageDir)
 
 	// init storage
 	stg, err = storage.New(*storageDir)
@@ -148,7 +152,7 @@ func main() {
 	}
 	logger.Info("listen ", ips)
 	// init camera
-	if err = startDevice(*width, *height); err != nil {
+	if err = startDevice(ctx, *width, *height); err != nil {
 		logger.Error(fmt.Sprintf("camera %s is not ready, related functions will not be available, err: %s", *devName, err))
 	}
 	defer func() {
@@ -157,19 +161,17 @@ func main() {
 		}
 	}()
 
-	startWebdavSVC()
 	// init schedule
-	sch = schedule.New(frames)
-	defer sch.Clear()
+	sch = schedule.New(ctx, frames)
 
-	utils.ListenAndServe(r, *port)
+	utils.ListenAndServe(ctx, r, *port)
 }
 
-func startDevice(w, h int) error {
+func startDevice(ctx context.Context, w, h int) error {
 	var err error
 	dev, err = device.Open(
 		*devName,
-		device.WithBufferSize(0),
+		device.WithBufferSize(1),
 	)
 	if err != nil {
 		return err
@@ -188,7 +190,7 @@ func startDevice(w, h int) error {
 		return err
 	}
 	logger.Infof("set pix format to %d*%d", w, h)
-	if err = dev.Start(context.Background()); err != nil {
+	if err = dev.Start(ctx); err != nil {
 		return err
 	}
 
@@ -801,17 +803,41 @@ func realtimeVideo(c *gin.Context) {
 	c.Header("Content-Type", fmt.Sprintf("multipart/x-mixed-replace; boundary=%s", mimeWriter.Boundary()))
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Add("Content-Type", "image/jpeg")
+	for {
+		select {
+		case frame, ok := <-frames:
+			if !ok {
+				return
+			}
+			logger.Info("get realtime frame")
+			partWriter, err := mimeWriter.CreatePart(partHeader)
+			if err != nil {
+				logger.Errorf("failed to create multi-part writer: %s", err)
+				return
+			}
 
-	for frame := range frames {
-		logger.Info("get realtime frame")
-		partWriter, err := mimeWriter.CreatePart(partHeader)
-		if err != nil {
-			logger.Errorf("failed to create multi-part writer: %s", err)
-			return
-		}
-
-		if _, err := partWriter.Write(frame); err != nil {
-			logger.Errorf("failed to write image: %s", err)
+			if _, err := partWriter.Write(frame); err != nil {
+				logger.Errorf("failed to write image: %s", err)
+				return
+			}
+			logger.Infof("write frame len %d", len(frame))
+		case <-time.After(5 * time.Second):
+			logger.Errorf("timeout reading frame")
+			data, err := os.ReadFile("camera-disconnect.png")
+			if err != nil {
+				logger.Errorf("failed to read camera disconnect.png: %s", err)
+				continue
+			}
+			partWriter, err := mimeWriter.CreatePart(partHeader)
+			if err != nil {
+				logger.Errorf("failed to create multi-part writer: %s", err)
+				return
+			}
+			if _, err := partWriter.Write(data); err != nil {
+				logger.Errorf("failed to write image: %s", err)
+				return
+			}
+		case <-c.Done():
 		}
 	}
 }
@@ -820,47 +846,19 @@ func ctlWebdav(c *gin.Context) {
 	op := c.Query("op")
 	switch op {
 	case webDavStart:
-		startWebdav(c)
+		webdavServer.Start()
+		ips, err := getLocalIPsWithPort(*webdavPort)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, jsend.Success(ips))
 	case webDavShutdown:
-		shutdownWebdav(c)
+		webdavServer.Stop()
+		c.JSON(http.StatusOK, jsend.Success(nil))
 	default:
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr("unknown operation"))
 	}
-}
-
-func startWebdav(c *gin.Context) {
-	cancelLock.Lock()
-	defer cancelLock.Unlock()
-	if cancelWebdav != nil {
-		c.JSON(http.StatusOK, jsend.Success("the webdav service is already enabled"))
-		return
-	}
-	startWebdavSVC()
-	ips, err := getLocalIPsWithPort(*webdavPort)
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, jsend.Success(ips))
-}
-
-func startWebdavSVC() {
-	ctx, cancel := context.WithCancel(context.Background())
-	webdav.Serve(ctx, *webdavPort, *storageDir)
-	cancelWebdav = cancel
-}
-
-func shutdownWebdav(c *gin.Context) {
-	cancelLock.Lock()
-	defer cancelLock.Unlock()
-	if cancelWebdav == nil {
-		c.JSON(http.StatusOK, jsend.SimpleErr("the webdav service has been shut down"))
-		return
-	}
-	cancelWebdav()
-	cancelWebdav = nil
-
-	c.JSON(http.StatusOK, jsend.Success(nil))
 }
 
 func registerStaticsDir(group gin.IRoutes, dir, relativeGroup string) error {

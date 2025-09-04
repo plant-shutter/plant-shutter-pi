@@ -1,10 +1,9 @@
-FROM --platform=$BUILDPLATFORM crazymax/goxx:latest AS base
+FROM --platform=$BUILDPLATFORM registry.cn-hangzhou.aliyuncs.com/adpc/goxx:latest AS build
 
 ENV OUTPUT="plant-shutter"
 ENV CGO_ENABLED=1
 WORKDIR /src
 
-FROM base AS build
 ARG TARGETPLATFORM
 RUN --mount=type=cache,sharing=private,target=/var/cache/apt \
   --mount=type=cache,sharing=private,target=/var/lib/apt/lists \
@@ -14,7 +13,7 @@ RUN --mount=type=bind,source=. \
   --mount=type=cache,target=/go/pkg/mod \
   export GOPROXY=https://proxy.golang.com.cn && \
   export CC=arm-linux-gnueabi-gcc && \
-  goxx-go build -o /out/${OUTPUT} main.go
+  goxx-go build -o /out/${OUTPUT} cmd/camera/main.go
 
 FROM scratch AS artifact
 COPY --from=build /out /
