@@ -28,8 +28,6 @@ import (
 	"github.com/vincent-vinf/go-jsend"
 	"go.uber.org/zap"
 
-	"github.com/vladimirvivien/go4vl/device"
-	"github.com/vladimirvivien/go4vl/v4l2"
 	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/types"
 
@@ -65,10 +63,9 @@ var (
 	logger       *zap.SugaredLogger
 	webdavServer *webdav.Webdav
 
-	stg    *storage.Storage
-	frames <-chan []byte
-	dev    *device.Device
-	sch    *schedule.Scheduler
+	stg *storage.Storage
+	dev *camera.Camera
+	sch *schedule.Scheduler
 )
 
 func init() {
@@ -82,7 +79,8 @@ func main() {
 	fmt.Println("┃            Raspberry Pi Camera Automation                    ┃")
 	fmt.Println("┃  repo: https://github.com/plant-shutter/plant-shutter-pi     ┃")
 	fmt.Println("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
-	logger.Infof("\n")
+
+	defer logger.Sync()
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -91,7 +89,6 @@ func main() {
 		logger.Fatal(err)
 	}
 
-	defer logger.Sync()
 	webdavServer = webdav.New(ctx, *webdavPort, *storageDir)
 
 	// init storage
@@ -152,59 +149,35 @@ func main() {
 	}
 	logger.Info("listen ", ips)
 	// init camera
-	if err = startDevice(ctx, *width, *height); err != nil {
+	if err = initDevice(ctx, *devName, *width, *height); err != nil {
 		logger.Error(fmt.Sprintf("camera %s is not ready, related functions will not be available, err: %s", *devName, err))
 	}
-	defer func() {
-		if dev != nil {
-			dev.Close()
-		}
-	}()
 
 	// init schedule
-	sch = schedule.New(ctx, frames)
+	sch = schedule.New(ctx, dev)
 
 	utils.ListenAndServe(ctx, r, *port)
 }
 
-func startDevice(ctx context.Context, w, h int) error {
+func initDevice(ctx context.Context, devName string, w, h int) error {
+	dev = camera.New(ctx, devName)
+	dev.ResetSettings()
 	var err error
-	dev, err = device.Open(
-		*devName,
-		device.WithBufferSize(1),
-	)
-	if err != nil {
-		return err
-	}
-	camera.InitControls(dev)
 	if w <= 0 || h <= 0 {
-		w, h, err = getMaxSize()
+		w, h, err = dev.GetMaxSize()
 		if err != nil {
 			return err
 		}
 	}
 	consts.Width = w
 	consts.Height = h
-	err = dev.SetPixFormat(v4l2.PixFormat{PixelFormat: v4l2.PixelFmtJPEG, Width: uint32(w), Height: uint32(h)})
-	if err != nil {
-		return err
-	}
 	logger.Infof("set pix format to %d*%d", w, h)
-	if err = dev.Start(ctx); err != nil {
-		return err
-	}
-
-	frames = dev.GetOutput()
 
 	return nil
 }
 
 func listConfig(c *gin.Context) {
-	if err := checkDevice(); err != nil {
-		internalErr(c, err)
-		return
-	}
-	configs, err := camera.GetKnownCtrlConfigs(dev)
+	configs, err := dev.GetKnownCtrlConfigs()
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -213,10 +186,6 @@ func listConfig(c *gin.Context) {
 }
 
 func updateConfig(c *gin.Context) {
-	if err := checkDevice(); err != nil {
-		internalErr(c, err)
-		return
-	}
 	if p := sch.GetProject(); p != nil {
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running", p.Name)))
 	}
@@ -236,11 +205,7 @@ func updateConfig(c *gin.Context) {
 }
 
 func resetConfig(c *gin.Context) {
-	if err := checkDevice(); err != nil {
-		internalErr(c, err)
-		return
-	}
-	configs, err := camera.GetKnownCtrlConfigs(dev)
+	configs, err := dev.GetKnownCtrlConfigs()
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -251,7 +216,7 @@ func resetConfig(c *gin.Context) {
 			return
 		}
 	}
-	configs, err = camera.GetKnownCtrlConfigs(dev)
+	configs, err = dev.GetKnownCtrlConfigs()
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -406,10 +371,6 @@ func fillOvProject(p, runningP *project.Project) (*ov.Project, error) {
 }
 
 func createProject(c *gin.Context) {
-	if err := checkDevice(); err != nil {
-		internalErr(c, err)
-		return
-	}
 	var p ov.NewProject
 	err := c.Bind(&p)
 	if err != nil {
@@ -437,11 +398,6 @@ func createProject(c *gin.Context) {
 		return
 	}
 
-	s, err := camera.GetKnownCtrlSettings(dev)
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
 	if p.Video == nil {
 		p.Video = &types.VideoSetting{
 			Enable:             true,
@@ -452,7 +408,7 @@ func createProject(c *gin.Context) {
 			PreviewVideoLength: 15,
 		}
 	}
-	pj, err = stg.NewProject(p.Name, p.Info, *p.Interval, s, *p.Video)
+	pj, err = stg.NewProject(p.Name, p.Info, *p.Interval, make(types.CameraSettings), *p.Video)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -463,10 +419,6 @@ func createProject(c *gin.Context) {
 }
 
 func updateProject(c *gin.Context) {
-	if err := checkDevice(); err != nil {
-		internalErr(c, err)
-		return
-	}
 	var p ov.UpdateProject
 	err := c.Bind(&p)
 	if err != nil {
@@ -510,7 +462,7 @@ func updateProject(c *gin.Context) {
 		pj.Video = *p.Video
 	}
 	if p.Camera != nil && *p.Camera {
-		setting, err := camera.GetKnownCtrlSettings(dev)
+		setting, err := dev.GetKnownCtrlSettings()
 		if err != nil {
 			internalErr(c, err)
 			return
@@ -531,7 +483,7 @@ func updateProject(c *gin.Context) {
 		}
 		if *p.Running {
 			logger.Info("restore camera settings")
-			camera.ApplySettings(dev, pj.Camera)
+			dev.UpdateSettings(pj.Camera)
 			sch.Begin(pj)
 		} else {
 			sch.Stop()
@@ -798,29 +750,97 @@ func listProjectVideos(c *gin.Context) {
 	}))
 }
 
+func waitForDeviceRelease(ctx context.Context) (<-chan []byte, error) {
+	frames, err := dev.Start(consts.Width/2, consts.Height/2)
+	if err == nil {
+		return frames, nil
+	}
+	if !errors.Is(err, camera.StartedErr) {
+		return nil, err
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+			frames, err = dev.Start(consts.Width/2, consts.Height/2)
+			if err == nil {
+				return frames, nil
+			}
+			if !errors.Is(err, camera.StartedErr) {
+				return nil, err
+			}
+			logger.Debug("waiting for device release")
+		}
+	}
+}
+
+func drainLatest(c *gin.Context, first []byte, frames <-chan []byte) ([]byte, bool) {
+	latest := first
+	for {
+		select {
+		case f, ok := <-frames:
+			if !ok {
+				// 这里不负责重连；让上层发现 !ok 再处理
+				return latest, ok
+			}
+			logger.Debug("drop old frame")
+			latest = f // 覆盖为最新
+			continue
+		case <-c.Done():
+			return latest, true
+		default:
+			// 没有更多积压帧了
+			return latest, true
+		}
+	}
+}
+
 func realtimeVideo(c *gin.Context) {
+	frames, err := waitForDeviceRelease(c.Request.Context())
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	defer func() {
+		logger.Info("stop realtime video")
+		err := dev.Stop()
+		if err != nil {
+			logger.Error(err)
+		}
+	}()
+
 	mimeWriter := multipart.NewWriter(c.Writer)
 	c.Header("Content-Type", fmt.Sprintf("multipart/x-mixed-replace; boundary=%s", mimeWriter.Boundary()))
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Add("Content-Type", "image/jpeg")
+
 	for {
 		select {
-		case frame, ok := <-frames:
+		case frame := <-frames:
+			frame, ok := drainLatest(c, frame, frames)
 			if !ok {
-				return
+				// channel被关闭，说明被设备抢占
+				time.Sleep(time.Second)
+				frames, err = waitForDeviceRelease(c.Request.Context())
+				if err != nil {
+					internalErr(c, err)
+					return
+				}
+				continue
 			}
-			logger.Info("get realtime frame")
-			partWriter, err := mimeWriter.CreatePart(partHeader)
+			if len(frame) == 0 {
+				logger.Error("empty frame received")
+				continue
+			}
+			err := writeMimePart(c, mimeWriter, partHeader, frame)
 			if err != nil {
-				logger.Errorf("failed to create multi-part writer: %s", err)
-				return
-			}
-
-			if _, err := partWriter.Write(frame); err != nil {
 				logger.Errorf("failed to write image: %s", err)
 				return
 			}
-			logger.Infof("write frame len %d", len(frame))
+			logger.Debugf("write frame len %d", len(frame))
 		case <-time.After(5 * time.Second):
 			logger.Errorf("timeout reading frame")
 			data, err := os.ReadFile("camera-disconnect.png")
@@ -828,18 +848,26 @@ func realtimeVideo(c *gin.Context) {
 				logger.Errorf("failed to read camera disconnect.png: %s", err)
 				continue
 			}
-			partWriter, err := mimeWriter.CreatePart(partHeader)
+			err = writeMimePart(c, mimeWriter, partHeader, data)
 			if err != nil {
-				logger.Errorf("failed to create multi-part writer: %s", err)
-				return
-			}
-			if _, err := partWriter.Write(data); err != nil {
 				logger.Errorf("failed to write image: %s", err)
 				return
 			}
 		case <-c.Done():
 		}
 	}
+}
+
+func writeMimePart(c *gin.Context, mimeWriter *multipart.Writer, partHeader textproto.MIMEHeader, frame []byte) error {
+	partWriter, err := mimeWriter.CreatePart(partHeader)
+	if err != nil {
+		return fmt.Errorf("create part failed: %s", err)
+	}
+
+	if _, err = partWriter.Write(frame); err != nil {
+		return fmt.Errorf("write part failed: %s", err)
+	}
+	return http.NewResponseController(c.Writer).Flush()
 }
 
 func ctlWebdav(c *gin.Context) {
@@ -877,6 +905,7 @@ func registerStaticsDir(group gin.IRoutes, dir, relativeGroup string) error {
 }
 
 func internalErr(c *gin.Context, err error) {
+	logger.Debug(err)
 	c.JSON(http.StatusInternalServerError, jsend.SimpleErr(err.Error()))
 }
 
@@ -975,30 +1004,4 @@ func getNTPTime() (time.Time, error) {
 
 	// Use the clock offset to calculate the time.
 	return time.Now().Add(r.ClockOffset), nil
-}
-
-func checkDevice() error {
-	if dev == nil {
-		return fmt.Errorf("camera %s is not ready, related functions will not be available", *devName)
-	}
-
-	return nil
-}
-
-func getMaxSize() (width, height int, err error) {
-	sizes, err := v4l2.GetAllFormatFrameSizes(dev.Fd())
-	if err != nil {
-		panic(err)
-	}
-	for _, size := range sizes {
-		if size.PixelFormat == v4l2.PixelFmtJPEG {
-			width = int(size.Size.MaxWidth)
-			height = int(size.Size.MaxHeight)
-
-			return
-		}
-	}
-	err = fmt.Errorf("unable to determine the maximum pixels of the camera")
-
-	return
 }

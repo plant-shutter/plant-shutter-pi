@@ -13,6 +13,8 @@ const (
 	DefaultDirPerm  = 0777
 
 	MinInterval = 300
+	Width1080P  = 1920
+	Height1080P = 1080
 )
 
 var (

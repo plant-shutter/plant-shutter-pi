@@ -39,11 +39,23 @@ func captureOnce(device *camera.Camera, width, height int, outfile string) error
 func main() {
 	dev := "/dev/video0"
 	device := camera.New(dev)
+	device.ResetSettings()
+	width, height, err := device.GetMaxSize()
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("Width: %d, Height: %d", width, height)
 
 	// 第一次：1920x1080
 	if err := captureOnce(device, 1920, 1080, "photo_1080.jpg"); err != nil {
 		log.Fatalf("capture 1080p failed: %v", err)
 	}
+
+	width, height, err = device.GetMaxSize()
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("Width: %d, Height: %d", width, height)
 
 	// 切换到高分辨率：3280x2464
 	if err := captureOnce(device, 3280, 2464, "photo_full.jpg"); err != nil {

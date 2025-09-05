@@ -19,7 +19,7 @@ func GetLogger() *zap.SugaredLogger {
 
 func NewLogger() *zap.SugaredLogger {
 	cfg := zap.Config{
-		Level:    zap.NewAtomicLevelAt(zapcore.InfoLevel),
+		Level:    zap.NewAtomicLevelAt(zapcore.DebugLevel),
 		Encoding: "console",
 		EncoderConfig: zapcore.EncoderConfig{
 			MessageKey:  "msg",

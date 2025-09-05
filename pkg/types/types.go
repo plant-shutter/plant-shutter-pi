@@ -13,7 +13,7 @@ type VideoSetting struct {
 	PreviewVideoLength float32 `json:"previewVideoLength"`
 }
 
-type CameraSettings map[int32]int32
+type CameraSettings map[uint32]int32
 
 type File struct {
 	Name    string    `json:"name"`
