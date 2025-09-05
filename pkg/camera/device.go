@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
@@ -83,7 +84,10 @@ func (c *Camera) Stop() error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.cancel != nil {
+		// 先取消上下文，让底层流处理 goroutine 走到 ctx.Done 分支并调用 d.Stop()
 		c.cancel()
+		// 短暂等待，避免我们随即调用 Close() 时与底层 goroutine 的 Stop() 并发执行
+		time.Sleep(100 * time.Millisecond)
 		c.cancel = nil
 	}
 	if c.camera != nil {

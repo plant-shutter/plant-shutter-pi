@@ -2,7 +2,6 @@ package schedule
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -15,21 +14,21 @@ import (
 )
 
 type Scheduler struct {
-	t      *time.Ticker
-	dev    *camera.Camera
-	p      *project.Project
-	lock   sync.Mutex
-	logger *zap.SugaredLogger
+	t          *time.Ticker
+	controller *camera.Controller
+	p          *project.Project
+	lock       sync.Mutex
+	logger     *zap.SugaredLogger
 }
 
-func New(ctx context.Context, dev *camera.Camera) *Scheduler {
+func New(ctx context.Context, controller *camera.Controller) *Scheduler {
 	t := time.NewTicker(time.Second)
 	t.Stop()
 
 	s := &Scheduler{
-		t:      t,
-		dev:    dev,
-		logger: utils.GetLogger(),
+		t:          t,
+		controller: controller,
+		logger:     utils.GetLogger(),
 	}
 	s.startDeal(ctx)
 
@@ -64,33 +63,6 @@ func (s *Scheduler) GetProject() *project.Project {
 	return &*s.p
 }
 
-func (s *Scheduler) getFrame() ([]byte, error) {
-	if s.dev.IsStarted() {
-		err := s.dev.Stop()
-		if err != nil {
-			return nil, err
-		}
-	}
-	frames, err := s.dev.Start(consts.Width, consts.Height)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		s.logger.Debug("release device")
-		err := s.dev.Stop()
-		if err != nil {
-			s.logger.Warnf("scheduler: failed to stop dev: %v", err)
-		}
-	}()
-	// todo 需要过滤前几帧，获得更好的结果
-	frame, ok := <-frames
-	if !ok {
-		return nil, errors.New("camera has been closed")
-	}
-
-	return frame, nil
-}
-
 func (s *Scheduler) startDeal(ctx context.Context) {
 	go func(s *Scheduler) {
 		for {
@@ -102,7 +74,7 @@ func (s *Scheduler) startDeal(ctx context.Context) {
 					s.logger.Warn("scheduler: should close when the project is nil!")
 					continue
 				}
-				frame, err := s.getFrame()
+				frame, err := s.controller.Capture(consts.Width, consts.Height)
 				if err != nil {
 					s.logger.Errorf("get frame error: %s", err)
 				} else {

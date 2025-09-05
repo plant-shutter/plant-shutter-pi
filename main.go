@@ -63,9 +63,10 @@ var (
 	logger       *zap.SugaredLogger
 	webdavServer *webdav.Webdav
 
-	stg *storage.Storage
-	dev *camera.Camera
-	sch *schedule.Scheduler
+	stg        *storage.Storage
+	dev        *camera.Camera
+	controller *camera.Controller
+	sch        *schedule.Scheduler
 )
 
 func init() {
@@ -154,7 +155,7 @@ func main() {
 	}
 
 	// init schedule
-	sch = schedule.New(ctx, dev)
+	sch = schedule.New(ctx, controller)
 
 	utils.ListenAndServe(ctx, r, *port)
 }
@@ -172,6 +173,8 @@ func initDevice(ctx context.Context, devName string, w, h int) error {
 	consts.Width = w
 	consts.Height = h
 	logger.Infof("set pix format to %d*%d", w, h)
+
+	controller = camera.NewController(dev)
 
 	return nil
 }
@@ -750,33 +753,6 @@ func listProjectVideos(c *gin.Context) {
 	}))
 }
 
-func waitForDeviceRelease(ctx context.Context) (<-chan []byte, error) {
-	frames, err := dev.Start(consts.Width/2, consts.Height/2)
-	if err == nil {
-		return frames, nil
-	}
-	if !errors.Is(err, camera.StartedErr) {
-		return nil, err
-	}
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-			frames, err = dev.Start(consts.Width/2, consts.Height/2)
-			if err == nil {
-				return frames, nil
-			}
-			if !errors.Is(err, camera.StartedErr) {
-				return nil, err
-			}
-			logger.Debug("waiting for device release")
-		}
-	}
-}
-
 func drainLatest(c *gin.Context, first []byte, frames <-chan []byte) ([]byte, bool) {
 	latest := first
 	for {
@@ -799,14 +775,15 @@ func drainLatest(c *gin.Context, first []byte, frames <-chan []byte) ([]byte, bo
 }
 
 func realtimeVideo(c *gin.Context) {
-	frames, err := waitForDeviceRelease(c.Request.Context())
+	frames, err := controller.StartPreview(consts.Width/4, consts.Height/4)
 	if err != nil {
+		logger.Error(err)
 		internalErr(c, err)
 		return
 	}
 	defer func() {
 		logger.Info("stop realtime video")
-		err := dev.Stop()
+		err := controller.StopPreview()
 		if err != nil {
 			logger.Error(err)
 		}
@@ -822,14 +799,7 @@ func realtimeVideo(c *gin.Context) {
 		case frame := <-frames:
 			frame, ok := drainLatest(c, frame, frames)
 			if !ok {
-				// channel被关闭，说明被设备抢占
-				time.Sleep(time.Second)
-				frames, err = waitForDeviceRelease(c.Request.Context())
-				if err != nil {
-					internalErr(c, err)
-					return
-				}
-				continue
+				return
 			}
 			if len(frame) == 0 {
 				logger.Error("empty frame received")
