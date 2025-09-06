@@ -1,6 +1,8 @@
 package ov
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vladimirvivien/go4vl/v4l2"
@@ -52,6 +54,20 @@ type Config struct {
 	Step int32 `json:"step"`
 
 	Default int32 `json:"default"`
+}
+
+func (c *Config) String() string {
+	var menus []string
+	if c.IsMenu {
+		for id, menu := range c.MenuItems {
+			menus = append(menus, fmt.Sprintf("%d: %s", id, menu))
+		}
+	}
+	var menuStr string
+	if len(menus) > 0 {
+		menuStr = fmt.Sprintf("Menu: %s", strings.Join(menus, ", "))
+	}
+	return fmt.Sprintf("%s(%d): %d default: %d %s", c.Name, c.ID, c.Value, c.Default, menuStr)
 }
 
 type UpdateConfig struct {

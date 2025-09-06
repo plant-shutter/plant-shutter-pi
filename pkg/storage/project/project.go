@@ -257,7 +257,7 @@ func (p *Project) LoadImageInfo() (*ImagesInfo, error) {
 	}
 	info := &ImagesInfo{}
 	if err = json.Unmarshal(data, info); err != nil {
-		return nil, fmt.Errorf("unmarshal image info err: %w", err)
+		return nil, fmt.Errorf("unmarshal image info %s err: %w, %s", p.Name, err, string(data))
 	}
 
 	return info, nil

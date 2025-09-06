@@ -6,13 +6,18 @@ import (
 )
 
 func TestProject(t *testing.T) {
-	s, err := New("tmp")
+	s, err := New("plant-project")
 	checkErr(t, err)
-	defer s.Close()
-	project, err := s.GetLastRunningProject()
+	ps, err := s.ListProjects()
+	checkErr(t, err)
+	for _, p := range ps {
+		log.Println(p)
 
-	checkErr(t, err)
-	log.Println(project)
+	}
+	//project, err := s.GetLastRunningProject()
+	//
+	//checkErr(t, err)
+	//log.Println(project)
 
 	//project, err := s.GetProject("test")
 	//checkErr(t, err)

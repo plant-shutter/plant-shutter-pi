@@ -27,7 +27,7 @@ func main() {
 
 	ctx := context.Background()
 	cam := camera.New(ctx, *dev)
-	ctrl := camera.NewController(cam)
+	ctrl := camera.NewController(cam, nil)
 
 	for iter := 1; ; iter++ {
 		fmt.Printf("\n===== 循环第 %d 次 =====\n", iter)

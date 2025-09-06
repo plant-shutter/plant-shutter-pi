@@ -1,31 +1,22 @@
 package main
 
 import (
-	"github.com/vladimirvivien/go4vl/device"
-	"github.com/vladimirvivien/go4vl/v4l2"
 	"log"
+
+	"plant-shutter-pi/pkg/storage"
 )
 
 func main() {
-	devName := "/dev/video0"
-	dev, err := device.Open(
-		devName,
-	)
+	s, err := storage.New("plant-project")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	sizes, err := v4l2.GetAllFormatFrameSizes(dev.Fd())
+	ps, err := s.ListProjects()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	for _, size := range sizes {
-		if size.PixelFormat == v4l2.PixelFmtJPEG {
-			log.Println(size)
-		}
+	for _, p := range ps {
+		log.Println(p.Name)
+
 	}
-	//marshal, err := json.MarshalIndent(info, "", "    ")
-	//if err != nil {
-	//	panic(err)
-	//}
-	//fmt.Println(string(marshal))
 }

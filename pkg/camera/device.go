@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	StartedErr = errors.New("already started")
+	StartedErr        = errors.New("already started")
+	PreviewStartedErr = errors.New("preview already started")
 )
 
 type Camera struct {

@@ -800,9 +800,30 @@ func drainLatest(c *gin.Context, first []byte, frames <-chan []byte) ([]byte, bo
 }
 
 func realtimeVideo(c *gin.Context) {
-	frames, err := controller.StartPreview(consts.Width/(*downscaleFactor), consts.Height/(*downscaleFactor))
+	var frames <-chan []byte
+	var err error
+	for i := 0; i < 16; i++ {
+		frames, err = controller.StartPreview(consts.Width/(*downscaleFactor), consts.Height/(*downscaleFactor))
+		if err == nil {
+			break
+		} else if errors.Is(err, camera.StartedErr) || errors.Is(err, camera.PreviewStartedErr) {
+			var done bool
+			select {
+			case <-c.Done():
+				done = true
+			default:
+			}
+			if done {
+				logger.Warn("realtime video context done")
+				return
+			}
+			logger.Infof("Camera already started retry later %d/%d", i+1, 16)
+			time.Sleep(time.Duration(100*(i+1)) * time.Millisecond)
+			continue
+		}
+	}
+
 	if err != nil {
-		logger.Error(err)
 		internalErr(c, err)
 		return
 	}
@@ -824,6 +845,7 @@ func realtimeVideo(c *gin.Context) {
 		case frame := <-frames:
 			frame, ok := drainLatest(c, frame, frames)
 			if !ok {
+				logger.Warn("realtime video frames close")
 				return
 			}
 			if len(frame) == 0 {
@@ -832,7 +854,7 @@ func realtimeVideo(c *gin.Context) {
 			}
 			err := writeMimePart(c, mimeWriter, partHeader, frame)
 			if err != nil {
-				logger.Errorf("failed to write image: %s", err)
+				logger.Warnf("failed to write image: %s", err)
 				return
 			}
 			logger.Debugf("write frame len %d", len(frame))
@@ -840,15 +862,16 @@ func realtimeVideo(c *gin.Context) {
 			logger.Errorf("timeout reading frame")
 			data, err := os.ReadFile("camera-disconnect.png")
 			if err != nil {
-				logger.Errorf("failed to read camera disconnect.png: %s", err)
+				logger.Warnf("failed to read camera disconnect.png: %s", err)
 				continue
 			}
 			err = writeMimePart(c, mimeWriter, partHeader, data)
 			if err != nil {
-				logger.Errorf("failed to write image: %s", err)
+				logger.Warnf("failed to write image: %s", err)
 				return
 			}
 		case <-c.Done():
+			logger.Warn("realtime video context done in for")
 		}
 	}
 }

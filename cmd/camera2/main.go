@@ -62,12 +62,12 @@ func main() {
 	dev := "/dev/video0"
 
 	// 第一次：1920x1080
-	if err := captureOnce(dev, 1920, 1080, "photo_1080.jpg"); err != nil {
+	if err := captureOnce(dev, 3280/2, 2464/2, "photo_1080.jpg"); err != nil {
 		log.Fatalf("capture 1080p failed: %v", err)
 	}
 
-	// 切换到高分辨率：3280x2464
-	if err := captureOnce(dev, 3280, 2464, "photo_full.jpg"); err != nil {
-		log.Fatalf("capture full-res failed: %v", err)
-	}
+	//// 切换到高分辨率：3280x2464
+	//if err := captureOnce(dev, 3280, 2464, "photo_full.jpg"); err != nil {
+	//	log.Fatalf("capture full-res failed: %v", err)
+	//}
 }

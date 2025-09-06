@@ -51,7 +51,7 @@ func (c *Controller) StartPreview(width, height int) (<-chan []byte, error) {
 	defer c.mu.Unlock()
 
 	if c.previewing {
-		return nil, errors.New("preview already started")
+		return nil, PreviewStartedErr
 	}
 
 	if c.previewCh == nil {
@@ -145,6 +145,16 @@ func (c *Controller) Capture(width, height int) ([]byte, error) {
 		}
 		return nil, err
 	}
+
+	configs, err := c.cam.GetKnownCtrlConfigs()
+	if err != nil {
+		logger.Warnf("failed to get known ctrl configs: %v", err)
+	}
+	var configStrings []string
+	for _, cf := range configs {
+		configStrings = append(configStrings, cf.String())
+	}
+	logger.Debugf("capture config:\n %s", strings.Join(configStrings, "\n"))
 
 	// 读取一帧
 	var img []byte
