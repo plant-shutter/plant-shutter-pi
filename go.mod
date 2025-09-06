@@ -15,6 +15,8 @@ require (
 	github.com/vladimirvivien/go4vl v0.0.5
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.43.0
+	periph.io/x/conn/v3 v3.7.2
+	periph.io/x/host/v3 v3.8.5
 )
 
 replace github.com/vladimirvivien/go4vl => ./third_party/go4vl

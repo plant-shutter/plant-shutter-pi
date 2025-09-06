@@ -143,6 +143,10 @@ func (s *Storage) GetLastRunningProject() (*project.Project, error) {
 	return p.LastRunning, nil
 }
 
+func (s *Storage) ClearLastRunningProject() error {
+	return s.dumpLastRunning(LastInfo{LastRunning: nil})
+}
+
 func (s *Storage) SetLastRunningProject(name string) error {
 	p, err := s.GetProject(name)
 	if err != nil {

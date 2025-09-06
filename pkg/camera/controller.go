@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"plant-shutter-pi/pkg/plugin"
 )
 
 // Controller 使用持久的预览通道来管理预览与拍照。
@@ -17,6 +19,8 @@ import (
 //     将临时停止设备，切换到拍照分辨率获取一帧，随后恢复至预览分辨率。
 //     拍照期间预览通道保持打开，但不会收到帧。
 type Controller struct {
+	plugins []plugin.Plugin
+
 	mu sync.Mutex
 
 	cam *Camera
@@ -35,9 +39,9 @@ type Controller struct {
 	previewing bool
 }
 
-// NewController 创建一个绑定到设备路径的控制器。
-func NewController(cam *Camera) *Controller {
-	return &Controller{cam: cam}
+// NewController 创建一个绑定到设备的控制器。
+func NewController(cam *Camera, plugins []plugin.Plugin) *Controller {
+	return &Controller{cam: cam, plugins: plugins}
 }
 
 // StartPreview 以 width x height 启动预览并返回预览通道。
@@ -107,9 +111,26 @@ func (c *Controller) Capture(width, height int) ([]byte, error) {
 		_ = c.cam.Stop()
 	}
 
+	for _, p := range c.plugins {
+		err := p.BeforeCapture()
+		if err != nil {
+			logger.Errorf("before capture run plugin err: %v", err)
+		}
+	}
+	defer func() {
+		for _, p := range c.plugins {
+			err := p.AfterCapture()
+			if err != nil {
+				logger.Errorf("before capture run plugin err: %v", err)
+			}
+		}
+	}()
+
 	// 以请求的分辨率启动拍照流
 	frames, err := c.cam.Start(width, height)
 	if err != nil {
+		logger.Errorf("failed to start capture error: %v", err)
+
 		// 失败时尝试恢复预览状态
 		if wasPreviewing {
 			if fr, e2 := c.resumePreview(c.pW, c.pH); e2 == nil {
@@ -229,7 +250,7 @@ func (c *Controller) resumePreview(width, height int) (<-chan []byte, error) {
 		fr  <-chan []byte
 		err error
 	)
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
 		fr, err = c.cam.Start(width, height)
 		if err == nil {
 			return fr, nil
@@ -237,7 +258,7 @@ func (c *Controller) resumePreview(width, height int) (<-chan []byte, error) {
 		if !isBusyErr(err) {
 			break
 		}
-		logger.Warnf("failed to resume preview will retry %d/5: %v", i+1, err)
+		logger.Warnf("failed to resume preview will retry %d/3: %v", i+1, err)
 		time.Sleep(150 * time.Millisecond)
 	}
 	return nil, err

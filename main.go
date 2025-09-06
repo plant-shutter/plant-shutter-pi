@@ -27,6 +27,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/vincent-vinf/go-jsend"
 	"go.uber.org/zap"
+	"plant-shutter-pi/pkg/plugin"
+	"plant-shutter-pi/pkg/plugin/gpio"
 
 	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/types"
@@ -52,13 +54,17 @@ const (
 var zipData []byte
 
 var (
-	webdavPort = flag.Int("webdav-port", 8080, "webdav port")
-	port       = flag.Int("port", 80, "ui port")
-	storageDir = flag.String("dir", "./plant-project", "")
-	staticsDir = flag.String("statics", "./statics", "")
-	devName    = flag.String("dev", "/dev/video0", "")
-	width      = flag.Int("width", 0, "")
-	height     = flag.Int("height", 0, "")
+	webdavPort      = flag.Int("webdav-port", 8080, "webdav port")
+	port            = flag.Int("port", 80, "ui port")
+	storageDir      = flag.String("dir", "./plant-project", "")
+	staticsDir      = flag.String("statics", "./statics", "")
+	devName         = flag.String("dev", "/dev/video0", "")
+	width           = flag.Int("width", 0, "")
+	height          = flag.Int("height", 0, "")
+	downscaleFactor = flag.Int("downscale", 4, "preview downscale factor, default 4")
+
+	flashPin           = flag.String("flash-pin", "", "// \"11\": gpio number\n// \"GPIO11\": gpio name as defined per the bcm238x CPU driver\n// \"P1_23\": board header P1 position 23 name as defined by the rpi board driver")
+	flashTriggerOnHigh = flag.Bool("flash-trigger-on-high", true, "")
 
 	logger       *zap.SugaredLogger
 	webdavServer *webdav.Webdav
@@ -150,7 +156,7 @@ func main() {
 	}
 	logger.Info("listen ", ips)
 	// init camera
-	if err = initDevice(ctx, *devName, *width, *height); err != nil {
+	if err = initDevice(ctx, *devName, *width, *height, *flashPin, *flashTriggerOnHigh); err != nil {
 		logger.Error(fmt.Sprintf("camera %s is not ready, related functions will not be available, err: %s", *devName, err))
 	}
 
@@ -160,7 +166,7 @@ func main() {
 	utils.ListenAndServe(ctx, r, *port)
 }
 
-func initDevice(ctx context.Context, devName string, w, h int) error {
+func initDevice(ctx context.Context, devName string, w, h int, flashPin string, flashLevel bool) error {
 	dev = camera.New(ctx, devName)
 	dev.ResetSettings()
 	var err error
@@ -174,7 +180,16 @@ func initDevice(ctx context.Context, devName string, w, h int) error {
 	consts.Height = h
 	logger.Infof("set pix format to %d*%d", w, h)
 
-	controller = camera.NewController(dev)
+	var plugins []plugin.Plugin
+	if flashPin != "" {
+		flash, err := gpio.NewFlashPin(flashPin, flashLevel)
+		if err != nil {
+			return fmt.Errorf("failed to init flash pin %s, err: %s", flashPin, err)
+		}
+		plugins = append(plugins, flash)
+	}
+
+	controller = camera.NewController(dev, plugins)
 
 	return nil
 }
@@ -473,11 +488,6 @@ func updateProject(c *gin.Context) {
 		pj.Camera = setting
 	}
 
-	err = stg.UpdateProject(pj)
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
 	if p.Running != nil {
 		runningP := sch.GetProject()
 		if runningP != nil && runningP.Name != p.Name {
@@ -488,9 +498,24 @@ func updateProject(c *gin.Context) {
 			logger.Info("restore camera settings")
 			dev.UpdateSettings(pj.Camera)
 			sch.Begin(pj)
+			err = stg.SetLastRunningProject(pj.Name)
+			if err != nil {
+				logger.Errorf("set last running project: %v", err)
+				return
+			}
 		} else {
 			sch.Stop()
+			err = stg.ClearLastRunningProject()
+			if err != nil {
+				logger.Errorf("reset last running project: %v", err)
+			}
 		}
+	}
+
+	err = stg.UpdateProject(pj)
+	if err != nil {
+		internalErr(c, err)
+		return
 	}
 
 	c.JSON(http.StatusOK, jsend.Success(pj))
@@ -775,7 +800,7 @@ func drainLatest(c *gin.Context, first []byte, frames <-chan []byte) ([]byte, bo
 }
 
 func realtimeVideo(c *gin.Context) {
-	frames, err := controller.StartPreview(consts.Width/4, consts.Height/4)
+	frames, err := controller.StartPreview(consts.Width/(*downscaleFactor), consts.Height/(*downscaleFactor))
 	if err != nil {
 		logger.Error(err)
 		internalErr(c, err)
