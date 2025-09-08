@@ -19,6 +19,13 @@ var (
 
 		10291459: 90, // Compression Quality: 90
 	}
+	autoSettings = types.CameraSettings{
+		10094849: 0, // Auto Exposure: Auto Mode
+		10094868: 1, // White Balance, Auto & Preset: Manual
+		10094872: 1, // ISO Sensitivity, Auto: Manual
+
+		10291459: 90, // Compression Quality: 90
+	}
 	knownCtrlID = []v4l2.CtrlID{
 		10094849, // Auto Exposure: Auto Mode
 		10094868, // White Balance, Auto & Preset: Manual

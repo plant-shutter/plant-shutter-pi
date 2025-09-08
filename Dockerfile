@@ -15,7 +15,7 @@ RUN --mount=type=bind,source=. \
   export CC=arm-linux-gnueabi-gcc && \
   goxx-go build -o /out/${OUTPUT} main.go
 #  goxx-go build -o /out/${OUTPUT} cmd/preview-test/main.go
-#  goxx-go build -o /out/${OUTPUT} cmd/camera1/main.go
+#  goxx-go build -o /out/${OUTPUT} cmd/camera/main.go
 
 FROM scratch AS artifact
 COPY --from=build /out /

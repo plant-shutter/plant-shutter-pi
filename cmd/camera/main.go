@@ -12,7 +12,7 @@ import (
 
 func captureOnce(device *camera.Camera, width, height int, outfile string) error {
 	// 打开相机
-	frames, err := device.Start(context.Background(), width, height)
+	frames, err := device.Start(width, height)
 	if err != nil {
 		return fmt.Errorf("open device: %w", err)
 	}
@@ -38,7 +38,7 @@ func captureOnce(device *camera.Camera, width, height int, outfile string) error
 
 func main() {
 	dev := "/dev/video0"
-	device := camera.New(dev)
+	device := camera.New(context.Background(), dev)
 	device.ResetSettings()
 	width, height, err := device.GetMaxSize()
 	if err != nil {
@@ -46,24 +46,26 @@ func main() {
 	}
 	log.Printf("Width: %d, Height: %d", width, height)
 
-	// 第一次：1920x1080
-	if err := captureOnce(device, 1920, 1080, "photo_1080.jpg"); err != nil {
-		log.Fatalf("capture 1080p failed: %v", err)
+	//// 第一次：1920x1080
+	//if err := captureOnce(device, 1920, 1080, "photo_1080.jpg"); err != nil {
+	//	log.Fatalf("capture 1080p failed: %v", err)
+	//}
+	//
+	//width, height, err = device.GetMaxSize()
+	//if err != nil {
+	//	panic(err)
+	//}
+	//log.Printf("Width: %d, Height: %d", width, height)
+	//
+	//// 切换到高分辨率：3280x2464
+	//if err := captureOnce(device, 3280, 2464, "photo_full.jpg"); err != nil {
+	//	log.Fatalf("capture full-res failed: %v", err)
+	//}
+	for i := 0; i < 60; i++ {
+		// 切换到高分辨率：3280x2464
+		if err := captureOnce(device, width/2, height/2, fmt.Sprintf("photo_%d.jpg", i+1)); err != nil {
+			log.Fatalf("capture full-res failed: %v", err)
+		}
 	}
 
-	width, height, err = device.GetMaxSize()
-	if err != nil {
-		panic(err)
-	}
-	log.Printf("Width: %d, Height: %d", width, height)
-
-	// 切换到高分辨率：3280x2464
-	if err := captureOnce(device, 3280, 2464, "photo_full.jpg"); err != nil {
-		log.Fatalf("capture full-res failed: %v", err)
-	}
-
-	// 切换到高分辨率：3280x2464
-	if err := captureOnce(device, 2560, 1440, "photo_1440.jpg"); err != nil {
-		log.Fatalf("capture full-res failed: %v", err)
-	}
 }

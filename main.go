@@ -54,14 +54,13 @@ const (
 var zipData []byte
 
 var (
-	webdavPort      = flag.Int("webdav-port", 8080, "webdav port")
-	port            = flag.Int("port", 80, "ui port")
-	storageDir      = flag.String("dir", "./plant-project", "")
-	staticsDir      = flag.String("statics", "./statics", "")
-	devName         = flag.String("dev", "/dev/video0", "")
-	width           = flag.Int("width", 0, "")
-	height          = flag.Int("height", 0, "")
-	downscaleFactor = flag.Int("downscale", 4, "preview downscale factor, default 4")
+	webdavPort = flag.Int("webdav-port", 8080, "webdav port")
+	port       = flag.Int("port", 80, "ui port")
+	storageDir = flag.String("dir", "./plant-project", "")
+	staticsDir = flag.String("statics", "./statics", "")
+	devName    = flag.String("dev", "/dev/video0", "")
+	width      = flag.Int("width", 1920, "")
+	height     = flag.Int("height", 1080, "")
 
 	flashPin           = flag.String("flash-pin", "", "// \"11\": gpio number\n// \"GPIO11\": gpio name as defined per the bcm238x CPU driver\n// \"P1_23\": board header P1 position 23 name as defined by the rpi board driver")
 	flashTriggerOnHigh = flag.Bool("flash-trigger-on-high", true, "")
@@ -69,10 +68,10 @@ var (
 	logger       *zap.SugaredLogger
 	webdavServer *webdav.Webdav
 
-	stg        *storage.Storage
-	dev        *camera.Camera
-	controller *camera.Controller
-	sch        *schedule.Scheduler
+	stg    *storage.Storage
+	dev    *camera.Camera
+	sch    *schedule.Scheduler
+	frames <-chan []byte
 )
 
 func init() {
@@ -150,25 +149,23 @@ func main() {
 	projectRouter.DELETE("/:name/video/:video", deleteProjectVideo)
 	projectRouter.DELETE("/:name/video", deleteProjectVideos)
 
+	// init camera
+	if err = initDevice(ctx, *devName, *width, *height, *flashPin, *flashTriggerOnHigh); err != nil {
+		logger.Error(fmt.Sprintf("camera %s is not ready, related functions will not be available, err: %s", *devName, err))
+	}
+	defer dev.Stop()
+
 	ips, err := getLocalIPsWithPort(*port)
 	if err != nil {
 		logger.Fatal(err)
 	}
 	logger.Info("listen ", ips)
-	// init camera
-	if err = initDevice(ctx, *devName, *width, *height, *flashPin, *flashTriggerOnHigh); err != nil {
-		logger.Error(fmt.Sprintf("camera %s is not ready, related functions will not be available, err: %s", *devName, err))
-	}
-
-	// init schedule
-	sch = schedule.New(ctx, controller)
 
 	utils.ListenAndServe(ctx, r, *port)
 }
 
 func initDevice(ctx context.Context, devName string, w, h int, flashPin string, flashLevel bool) error {
 	dev = camera.New(ctx, devName)
-	dev.ResetSettings()
 	var err error
 	if w <= 0 || h <= 0 {
 		w, h, err = dev.GetMaxSize()
@@ -178,7 +175,13 @@ func initDevice(ctx context.Context, devName string, w, h int, flashPin string, 
 	}
 	consts.Width = w
 	consts.Height = h
-	logger.Infof("set pix format to %d*%d", w, h)
+
+	frames, err = dev.Start(consts.Width, consts.Height)
+	if err != nil {
+		return err
+	}
+	logger.Info("start device ", devName)
+	dev.ResetSettings()
 
 	var plugins []plugin.Plugin
 	if flashPin != "" {
@@ -188,8 +191,10 @@ func initDevice(ctx context.Context, devName string, w, h int, flashPin string, 
 		}
 		plugins = append(plugins, flash)
 	}
-
-	controller = camera.NewController(dev, plugins)
+	// init schedule
+	// todo plugin
+	logger.Info("start schedule")
+	sch = schedule.New(ctx, frames)
 
 	return nil
 }
@@ -431,6 +436,7 @@ func createProject(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	dev.UpdateSettings(pj.Camera)
 
 	c.JSON(http.StatusOK, jsend.Success(pj))
 	return
@@ -778,63 +784,7 @@ func listProjectVideos(c *gin.Context) {
 	}))
 }
 
-func drainLatest(c *gin.Context, first []byte, frames <-chan []byte) ([]byte, bool) {
-	latest := first
-	for {
-		select {
-		case f, ok := <-frames:
-			if !ok {
-				// 这里不负责重连；让上层发现 !ok 再处理
-				return latest, ok
-			}
-			logger.Debug("drop old frame")
-			latest = f // 覆盖为最新
-			continue
-		case <-c.Done():
-			return latest, true
-		default:
-			// 没有更多积压帧了
-			return latest, true
-		}
-	}
-}
-
 func realtimeVideo(c *gin.Context) {
-	var frames <-chan []byte
-	var err error
-	for i := 0; i < 16; i++ {
-		frames, err = controller.StartPreview(consts.Width/(*downscaleFactor), consts.Height/(*downscaleFactor))
-		if err == nil {
-			break
-		} else if errors.Is(err, camera.StartedErr) || errors.Is(err, camera.PreviewStartedErr) {
-			var done bool
-			select {
-			case <-c.Done():
-				done = true
-			default:
-			}
-			if done {
-				logger.Warn("realtime video context done")
-				return
-			}
-			logger.Infof("Camera already started retry later %d/%d", i+1, 16)
-			time.Sleep(time.Duration(100*(i+1)) * time.Millisecond)
-			continue
-		}
-	}
-
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	defer func() {
-		logger.Info("stop realtime video")
-		err := controller.StopPreview()
-		if err != nil {
-			logger.Error(err)
-		}
-	}()
-
 	mimeWriter := multipart.NewWriter(c.Writer)
 	c.Header("Content-Type", fmt.Sprintf("multipart/x-mixed-replace; boundary=%s", mimeWriter.Boundary()))
 	partHeader := make(textproto.MIMEHeader)
@@ -843,7 +793,7 @@ func realtimeVideo(c *gin.Context) {
 	for {
 		select {
 		case frame := <-frames:
-			frame, ok := drainLatest(c, frame, frames)
+			frame, ok := camera.DrainLatest(c, frame, frames)
 			if !ok {
 				logger.Warn("realtime video frames close")
 				return
@@ -857,7 +807,6 @@ func realtimeVideo(c *gin.Context) {
 				logger.Warnf("failed to write image: %s", err)
 				return
 			}
-			logger.Debugf("write frame len %d", len(frame))
 		case <-time.After(5 * time.Second):
 			logger.Errorf("timeout reading frame")
 			data, err := os.ReadFile("camera-disconnect.png")
