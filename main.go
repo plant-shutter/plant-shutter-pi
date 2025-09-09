@@ -194,7 +194,7 @@ func initDevice(ctx context.Context, devName string, w, h int, flashPin string, 
 	// init schedule
 	// todo plugin
 	logger.Info("start schedule")
-	sch = schedule.New(ctx, stg, frames)
+	sch = schedule.New(ctx, stg, frames, plugins)
 
 	return nil
 }
@@ -479,8 +479,8 @@ func updateProject(c *gin.Context) {
 		}
 	}
 	if p.Video != nil {
-		pj.VideoFPS = int32(p.Video.FPS)
-		pj.VideoMaxImage = int32(p.Video.MaxImage)
+		pj.VideoFPS = p.Video.FPS
+		pj.VideoMaxImage = p.Video.MaxImage
 		pj.ShootingDays = p.Video.ShootingDays
 		pj.TotalVideoLength = p.Video.TotalVideoLength
 		pj.PreviewVideoLength = p.Video.PreviewVideoLength
@@ -506,14 +506,15 @@ func updateProject(c *gin.Context) {
 			sch.Begin(pj)
 			err = stg.SetLastRunningProject(pj.Name)
 			if err != nil {
-				logger.Errorf("set last running project: %v", err)
+				internalErr(c, err)
 				return
 			}
 		} else {
 			sch.Stop()
 			err = stg.ClearLastRunningProject()
 			if err != nil {
-				logger.Errorf("reset last running project: %v", err)
+				internalErr(c, err)
+				return
 			}
 		}
 	}

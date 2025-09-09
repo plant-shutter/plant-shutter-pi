@@ -24,15 +24,16 @@ type Scheduler struct {
 	logger  *zap.SugaredLogger
 }
 
-func New(ctx context.Context, stg *storage.Storage, input <-chan []byte) *Scheduler {
+func New(ctx context.Context, stg *storage.Storage, input <-chan []byte, plugins []plugin.Plugin) *Scheduler {
 	t := time.NewTicker(time.Second)
 	t.Stop()
 
 	s := &Scheduler{
-		t:      t,
-		input:  input,
-		stg:    stg,
-		logger: utils.GetLogger(),
+		t:       t,
+		input:   input,
+		plugins: plugins,
+		stg:     stg,
+		logger:  utils.GetLogger(),
 	}
 	s.startDeal(ctx)
 
