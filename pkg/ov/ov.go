@@ -6,16 +6,14 @@ import (
 	"time"
 
 	"github.com/vladimirvivien/go4vl/v4l2"
-
-	"plant-shutter-pi/pkg/storage/project"
-	"plant-shutter-pi/pkg/types"
+	"plant-shutter-pi/pkg/storage/model"
 )
 
 type NewProject struct {
 	Name     string              `json:"name" binding:"required"`
 	Info     string              `json:"info"`
-	Interval *int                `json:"interval"`
-	Video    *types.VideoSetting `json:"video"`
+	Interval *int32              `json:"interval"`
+	Video    *model.VideoSetting `json:"video"`
 }
 
 type UpdateProject struct {
@@ -24,7 +22,7 @@ type UpdateProject struct {
 	Interval *int                `json:"interval"`
 	Running  *bool               `json:"running"`
 	Camera   *bool               `json:"camera"`
-	Video    *types.VideoSetting `json:"video"`
+	Video    *model.VideoSetting `json:"video"`
 }
 
 type ProjectName struct {
@@ -75,10 +73,31 @@ type UpdateConfig struct {
 	Value v4l2.CtrlValue
 }
 
+type VideoSetting struct {
+	Enable             bool    `json:"enable"`
+	FPS                int     `json:"fps"`
+	MaxImage           int     `json:"maxImage"`
+	ShootingDays       float32 `json:"shootingDays"`
+	TotalVideoLength   float32 `json:"totalVideoLength"`
+	PreviewVideoLength float32 `json:"previewVideoLength"`
+}
+
+func GetVideoSettingFromProject(p *model.Project) VideoSetting {
+	return VideoSetting{
+		Enable:             p.Enable,
+		FPS:                int(p.VideoFPS),
+		MaxImage:           int(p.VideoMaxImage),
+		ShootingDays:       p.ShootingDays,
+		TotalVideoLength:   p.TotalVideoLength,
+		PreviewVideoLength: p.PreviewVideoLength,
+	}
+}
+
 type Project struct {
-	*project.Project
-	Running   bool   `json:"running"`
-	DiskUsage string `json:"diskUsage"`
+	*model.Project
+	Video     VideoSetting `json:"video"`
+	Running   bool         `json:"running"`
+	DiskUsage string       `json:"diskUsage"`
 
 	StartedAt *time.Time `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt"`

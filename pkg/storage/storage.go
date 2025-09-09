@@ -2,149 +2,163 @@ package storage
 
 import (
 	"fmt"
-	"os"
 	"path"
 
-	"github.com/goccy/go-json"
+	"github.com/objectbox/objectbox-go/objectbox"
 
-	"plant-shutter-pi/pkg/storage/consts"
-	"plant-shutter-pi/pkg/storage/project"
-	"plant-shutter-pi/pkg/types"
+	"plant-shutter-pi/pkg/storage/model"
 	"plant-shutter-pi/pkg/utils"
 )
 
 type Storage struct {
-	rootDir string
+	rootDir    string
+	obx        *objectbox.ObjectBox
+	projectBox *model.ProjectEntityBox
+	lastBox    *model.LastRunningEntityBox
 }
 
-type LastInfo struct {
-	LastRunning *project.Project
-}
-
-func New(path string) (*Storage, error) {
-	if path == "" {
+func New(root string) (*Storage, error) {
+	if root == "" {
 		return nil, fmt.Errorf("rootDir can not be empty")
 	}
 
-	if err := utils.MkdirAll(path); err != nil {
+	if err := utils.MkdirAll(root); err != nil {
 		return nil, err
 	}
 
-	s := &Storage{rootDir: path}
-	if err := s.initDependFile(); err != nil {
+	// Initialize ObjectBox store under the storage root directory
+	ob, err := objectbox.NewBuilder().
+		Model(model.ObjectBoxModel()).
+		Directory(path.Join(root, "objectbox")).
+		Build()
+	if err != nil {
 		return nil, err
+	}
+
+	s := &Storage{
+		rootDir:    root,
+		obx:        ob,
+		projectBox: model.BoxForProjectEntity(ob),
+		lastBox:    model.BoxForLastRunningEntity(ob),
 	}
 
 	return s, nil
 }
 
-// ListProjects without bind
-func (s *Storage) ListProjects() ([]*project.Project, error) {
-	data, err := os.ReadFile(s.getProjectInfoPath())
+// ListProjects returns all projects from ObjectBox.
+func (s *Storage) ListProjects() ([]*model.Project, error) {
+	entities, err := s.projectBox.GetAll()
 	if err != nil {
 		return nil, err
 	}
-	var list []*project.Project
-
-	if err = json.Unmarshal(data, &list); err != nil {
-		return nil, err
-	}
-	for _, p := range list {
+	res := make([]*model.Project, 0, len(entities))
+	for _, e := range entities {
+		p := &model.Project{
+			ProjectEntity: *e,
+		}
 		p.SetRootDir(s.rootDir)
+		res = append(res, p)
 	}
-
-	return list, nil
+	return res, nil
 }
 
-func (s *Storage) GetProject(name string) (*project.Project, error) {
-	list, err := s.ListProjects()
+func (s *Storage) GetProject(name string) (*model.Project, error) {
+	q := s.projectBox.Query(model.ProjectEntity_.Name.Equals(name, true))
+	defer q.Close()
+	list, err := q.Find()
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range list {
-		if p.Name == name {
-			return p, nil
-		}
+	if len(list) == 0 {
+		return nil, nil
 	}
-
-	return nil, nil
-}
-
-func (s *Storage) NewProject(name, info string, interval int, camera types.CameraSettings, video types.VideoSetting) (*project.Project, error) {
-	list, err := s.ListProjects()
-	if err != nil {
-		return nil, err
+	p := &model.Project{
+		ProjectEntity: *list[0],
 	}
-	for _, p := range list {
-		if p.Name == name {
-			return nil, fmt.Errorf("project name already exists")
-		}
-	}
-	p, err := project.New(name, info, interval, s.rootDir, camera, video)
-	if err != nil {
-		return nil, err
-	}
-	list = append(list, p)
 	p.SetRootDir(s.rootDir)
 
-	return p, s.dumpList(list)
+	return p, nil
 }
 
-func (s *Storage) UpdateProject(p *project.Project) error {
+func (s *Storage) NewProject(name, info string, interval int32, camera model.CameraSettings, video model.VideoSetting) (*model.Project, error) {
+	existing, err := s.GetProject(name)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, fmt.Errorf("project name already exists")
+	}
+
+	p, err := model.New(name, info, interval, s.rootDir, camera, video)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.putProject(p); err != nil {
+		return nil, err
+	}
+	p.SetRootDir(s.rootDir)
+	return p, nil
+}
+
+func (s *Storage) UpdateProject(p *model.Project) error {
 	if p == nil {
 		return fmt.Errorf("project can not be nil")
 	}
-	list, err := s.ListProjects()
+	// Ensure it exists to preserve CreatedAt
+	old, err := s.GetProject(p.Name)
 	if err != nil {
 		return err
 	}
-	for i := 0; i < len(list); i++ {
-		if list[i].Name == p.Name {
-			p.CreatedAt = list[i].CreatedAt
-			list[i] = p
-			return s.dumpList(list)
-		}
+	if old == nil {
+		return fmt.Errorf("project does not exist")
 	}
-
-	return fmt.Errorf("project does not exist")
+	p.CreatedAt = old.CreatedAt
+	return s.putProject(p)
 }
 
 func (s *Storage) DeleteProject(name string) error {
-	list, err := s.ListProjects()
+	q := s.projectBox.Query(model.ProjectEntity_.Name.Equals(name, true))
+	defer q.Close()
+	list, err := q.Find()
 	if err != nil {
 		return err
 	}
-	for i := 0; i < len(list); i++ {
-		if list[i].Name == name {
-			p := list[i]
-			list = append(list[:i], list[i+1:]...)
-			if err = s.dumpList(list); err != nil {
-				return err
-			}
-			return p.Clear()
-		}
+	if len(list) == 0 {
+		return nil
 	}
-
-	return nil
+	// remove from DB
+	if _, err = s.projectBox.RemoveMany(list...); err != nil {
+		return err
+	}
+	// remove from filesystem
+	p := &model.Project{
+		ProjectEntity: *list[0],
+	}
+	p.SetRootDir(s.rootDir)
+	return p.Clear()
 }
 
-func (s *Storage) GetLastRunningProject() (*project.Project, error) {
-	data, err := os.ReadFile(s.getProjectLastRunningPath())
+func (s *Storage) GetLastRunningProject() (*model.Project, error) {
+	list, err := s.lastBox.GetAll()
 	if err != nil {
 		return nil, err
 	}
-	p := &LastInfo{}
-	err = json.Unmarshal(data, p)
-	if err != nil {
-		return nil, err
+	if len(list) == 0 || list[0].ProjectName == "" {
+		return nil, nil
 	}
-	p.LastRunning.SetRootDir(s.rootDir)
-
-	return p.LastRunning, nil
+	return s.GetProject(list[0].ProjectName)
 }
 
 func (s *Storage) ClearLastRunningProject() error {
-	return s.dumpLastRunning(LastInfo{LastRunning: nil})
+	// Remove all rows
+	all, err := s.lastBox.GetAll()
+	if err != nil {
+		return err
+	}
+	if len(all) > 0 {
+		_, err = s.lastBox.RemoveMany(all...)
+	}
+	return err
 }
 
 func (s *Storage) SetLastRunningProject(name string) error {
@@ -155,51 +169,19 @@ func (s *Storage) SetLastRunningProject(name string) error {
 	if p == nil {
 		return fmt.Errorf("project does not exist")
 	}
-
-	return s.dumpLastRunning(LastInfo{LastRunning: p})
-}
-
-func (s *Storage) dumpList(list []*project.Project) error {
-	f, err := os.Create(s.getProjectInfoPath())
-	if err != nil {
+	// only keep a single row
+	if err = s.ClearLastRunningProject(); err != nil {
 		return err
 	}
-	defer f.Close()
-
-	return json.NewEncoder(f).Encode(list)
+	_, err = s.lastBox.Put(&model.LastRunningEntity{ProjectName: name})
+	return err
 }
 
-func (s *Storage) dumpLastRunning(p LastInfo) error {
-	data, err := json.Marshal(p)
-	if err != nil {
-		return err
+// putProject stores/updates the project configuration entity
+func (s *Storage) putProject(p *model.Project) error {
+	if p == nil {
+		return fmt.Errorf("project can not be nil")
 	}
-
-	return os.WriteFile(s.getProjectLastRunningPath(), data, consts.DefaultFilePerm)
-}
-
-func (s *Storage) getProjectInfoPath() string {
-	return path.Join(s.rootDir, consts.DefaultInfoFile)
-}
-
-func (s *Storage) getProjectLastRunningPath() string {
-	return path.Join(s.rootDir, consts.DefaultLastRunningFile)
-}
-
-func (s *Storage) initDependFile() error {
-	_, err := os.Stat(s.getProjectInfoPath())
-	if os.IsNotExist(err) {
-		if err = s.dumpList(make([]*project.Project, 0)); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-
-	_, err = os.Stat(s.getProjectLastRunningPath())
-	if os.IsNotExist(err) {
-		return s.dumpLastRunning(LastInfo{})
-	}
-
+	_, err := s.projectBox.Put(&p.ProjectEntity)
 	return err
 }

@@ -30,7 +30,7 @@ import (
 	"plant-shutter-pi/pkg/plugin"
 	"plant-shutter-pi/pkg/plugin/gpio"
 
-	"plant-shutter-pi/pkg/storage/project"
+	"plant-shutter-pi/pkg/storage/model"
 	"plant-shutter-pi/pkg/types"
 
 	"plant-shutter-pi/pkg/camera"
@@ -144,10 +144,10 @@ func main() {
 	projectRouter.DELETE("/:name/image/:image", deleteProjectImage)
 	projectRouter.DELETE("/:name/image", deleteProjectImages)
 
-	projectRouter.GET("/:name/video", listProjectVideos)
-	projectRouter.GET("/:name/video/:video", getProjectVideo)
-	projectRouter.DELETE("/:name/video/:video", deleteProjectVideo)
-	projectRouter.DELETE("/:name/video", deleteProjectVideos)
+	//projectRouter.GET("/:name/video", listProjectVideos)
+	//projectRouter.GET("/:name/video/:video", getProjectVideo)
+	//projectRouter.DELETE("/:name/video/:video", deleteProjectVideo)
+	//projectRouter.DELETE("/:name/video", deleteProjectVideos)
 
 	// init camera
 	if err = initDevice(ctx, *devName, *width, *height, *flashPin, *flashTriggerOnHigh); err != nil {
@@ -194,7 +194,7 @@ func initDevice(ctx context.Context, devName string, w, h int, flashPin string, 
 	// init schedule
 	// todo plugin
 	logger.Info("start schedule")
-	sch = schedule.New(ctx, frames)
+	sch = schedule.New(ctx, stg, frames)
 
 	return nil
 }
@@ -363,24 +363,25 @@ func listProject(c *gin.Context) {
 	return
 }
 
-func fillOvProject(p, runningP *project.Project) (*ov.Project, error) {
+func fillOvProject(p, runningP *model.Project) (*ov.Project, error) {
 	usage, err := ps.DirDiskUsage(p.GetRootPath())
-	if err != nil {
-		return nil, err
-	}
-	info, err := p.LoadImageInfo()
 	if err != nil {
 		return nil, err
 	}
 	var o ov.Project
 	o.Project = p
+	o.Video = ov.GetVideoSettingFromProject(p)
 	o.DiskUsage = humanize.Bytes(uint64(usage))
 	if runningP != nil && runningP.Name == p.Name {
 		o.Running = true
 	}
-	o.StartedAt = info.StartedAt
-	o.EndedAt = info.EndedAt
-	o.ImageTotal = info.MaxNumber
+	if !p.StartedAt.IsZero() {
+		o.StartedAt = &p.StartedAt
+	}
+	if !p.EndedAt.IsZero() {
+		o.EndedAt = &p.EndedAt
+	}
+	o.ImageTotal = p.ImageCount
 	if o.StartedAt != nil && o.EndedAt != nil {
 		duration := o.EndedAt.Sub(*o.StartedAt)
 		hours := int(duration.Hours())
@@ -400,7 +401,7 @@ func createProject(c *gin.Context) {
 		return
 	}
 	if p.Interval == nil {
-		i := 124800
+		var i int32 = 124800
 		p.Interval = &i
 	}
 	if *p.Interval < consts.MinInterval {
@@ -422,7 +423,7 @@ func createProject(c *gin.Context) {
 	}
 
 	if p.Video == nil {
-		p.Video = &types.VideoSetting{
+		p.Video = &model.VideoSetting{
 			Enable:             true,
 			FPS:                30,
 			MaxImage:           450,
@@ -431,12 +432,12 @@ func createProject(c *gin.Context) {
 			PreviewVideoLength: 15,
 		}
 	}
-	pj, err = stg.NewProject(p.Name, p.Info, *p.Interval, make(types.CameraSettings), *p.Video)
+	pj, err = stg.NewProject(p.Name, p.Info, *p.Interval, make(model.CameraSettings), *p.Video)
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-	dev.UpdateSettings(pj.Camera)
+	dev.UpdateSettings(pj.CameraSettings)
 
 	c.JSON(http.StatusOK, jsend.Success(pj))
 	return
@@ -464,7 +465,7 @@ func updateProject(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("interval %dms less than %dms", *p.Interval, consts.MinInterval)))
 			return
 		}
-		pj.Interval = *p.Interval
+		pj.Interval = int32(*p.Interval)
 	}
 	if p.Info != nil {
 		pj.Info = *p.Info
@@ -472,18 +473,17 @@ func updateProject(c *gin.Context) {
 
 	if p.Camera != nil || p.Video != nil {
 		runningP := sch.GetProject()
-		cleaned, err := pj.Cleaned()
-		if err != nil {
-			internalErr(c, err)
-			return
-		}
-		if (runningP != nil && runningP.Name == pj.Name) || !cleaned {
+		if (runningP != nil && runningP.Name == pj.Name) || !pj.Cleaned() {
 			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s has been run, please reset first", pj.Name)))
 			return
 		}
 	}
 	if p.Video != nil {
-		pj.Video = *p.Video
+		pj.VideoFPS = int32(p.Video.FPS)
+		pj.VideoMaxImage = int32(p.Video.MaxImage)
+		pj.ShootingDays = p.Video.ShootingDays
+		pj.TotalVideoLength = p.Video.TotalVideoLength
+		pj.PreviewVideoLength = p.Video.PreviewVideoLength
 	}
 	if p.Camera != nil && *p.Camera {
 		setting, err := dev.GetKnownCtrlSettings()
@@ -491,7 +491,7 @@ func updateProject(c *gin.Context) {
 			internalErr(c, err)
 			return
 		}
-		pj.Camera = setting
+		pj.CameraSettings = setting
 	}
 
 	if p.Running != nil {
@@ -502,7 +502,7 @@ func updateProject(c *gin.Context) {
 		}
 		if *p.Running {
 			logger.Info("restore camera settings")
-			dev.UpdateSettings(pj.Camera)
+			dev.UpdateSettings(pj.CameraSettings)
 			sch.Begin(pj)
 			err = stg.SetLastRunningProject(pj.Name)
 			if err != nil {
@@ -546,7 +546,14 @@ func resetProject(c *gin.Context) {
 		return
 	}
 
-	p, err = stg.NewProject(p.Name, p.Info, p.Interval, p.Camera, p.Video)
+	p, err = stg.NewProject(p.Name, p.Info, p.Interval, p.CameraSettings, model.VideoSetting{
+		Enable:             p.Enable,
+		FPS:                p.VideoFPS,
+		MaxImage:           p.VideoMaxImage,
+		ShootingDays:       p.ShootingDays,
+		TotalVideoLength:   p.TotalVideoLength,
+		PreviewVideoLength: p.PreviewVideoLength,
+	})
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -589,7 +596,7 @@ func projectLatestImage(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
-	image, err := p.LatestImage()
+	image, err := p.GetLatestImage()
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -692,97 +699,98 @@ func listProjectImages(c *gin.Context) {
 	}))
 }
 
-func getProjectVideo(c *gin.Context) {
-	p, err := stg.GetProject(c.Param("name"))
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	if p == nil {
-		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-		return
-	}
-	videoName := c.Param("video")
-	videoPath := p.GetVideoPath(videoName)
-	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", videoName))
-	c.Writer.Header().Set("Content-Type", "application/octet-stream")
-	c.File(videoPath)
-}
-
-func deleteProjectVideo(c *gin.Context) {
-	p, err := stg.GetProject(c.Param("name"))
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	if p == nil {
-		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-		return
-	}
-	videoName := c.Param("video")
-	videoPath := p.GetVideoPath(videoName)
-	if err = os.Remove(videoPath); err != nil {
-		internalErr(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("remove video %s success", videoName)))
-}
-
-func deleteProjectVideos(c *gin.Context) {
-	p, err := stg.GetProject(c.Param("name"))
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	if p == nil {
-		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-		return
-	}
-
-	if err = p.ClearVideos(); err != nil {
-		internalErr(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, jsend.Success("remove videos success"))
-}
-
-func listProjectVideos(c *gin.Context) {
-	p, err := stg.GetProject(c.Param("name"))
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	if p == nil {
-		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-		return
-	}
-	list := make([]types.File, 0)
-	var totalSize int64
-	err = p.ListVideos(func(info fs.FileInfo) error {
-		list = append(list, infoToFile(info))
-		totalSize += info.Size()
-
-		return nil
-	})
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	page, _ := strconv.Atoi(c.Query("page"))
-	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-	subVideos, prev, next := getPage(list, page, pageSize)
-	c.JSON(http.StatusOK, jsend.Success(map[string]any{
-		"page":      page,
-		"pageSize":  pageSize,
-		"prevPage":  prev,
-		"nextPage":  next,
-		"total":     len(list),
-		"video":     subVideos,
-		"totalSize": humanize.Bytes(uint64(totalSize)),
-	}))
-}
+//
+//func getProjectVideo(c *gin.Context) {
+//	p, err := stg.GetProject(c.Param("name"))
+//	if err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//	if p == nil {
+//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+//		return
+//	}
+//	videoName := c.Param("video")
+//	videoPath := p.GetVideoPath(videoName)
+//	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", videoName))
+//	c.Writer.Header().Set("Content-Type", "application/octet-stream")
+//	c.File(videoPath)
+//}
+//
+//func deleteProjectVideo(c *gin.Context) {
+//	p, err := stg.GetProject(c.Param("name"))
+//	if err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//	if p == nil {
+//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+//		return
+//	}
+//	videoName := c.Param("video")
+//	videoPath := p.GetVideoPath(videoName)
+//	if err = os.Remove(videoPath); err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//
+//	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("remove video %s success", videoName)))
+//}
+//
+//func deleteProjectVideos(c *gin.Context) {
+//	p, err := stg.GetProject(c.Param("name"))
+//	if err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//	if p == nil {
+//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+//		return
+//	}
+//
+//	if err = p.ClearVideos(); err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//
+//	c.JSON(http.StatusOK, jsend.Success("remove videos success"))
+//}
+//
+//func listProjectVideos(c *gin.Context) {
+//	p, err := stg.GetProject(c.Param("name"))
+//	if err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//	if p == nil {
+//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
+//		return
+//	}
+//	list := make([]types.File, 0)
+//	var totalSize int64
+//	err = p.ListVideos(func(info fs.FileInfo) error {
+//		list = append(list, infoToFile(info))
+//		totalSize += info.Size()
+//
+//		return nil
+//	})
+//	if err != nil {
+//		internalErr(c, err)
+//		return
+//	}
+//	page, _ := strconv.Atoi(c.Query("page"))
+//	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+//	subVideos, prev, next := getPage(list, page, pageSize)
+//	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+//		"page":      page,
+//		"pageSize":  pageSize,
+//		"prevPage":  prev,
+//		"nextPage":  next,
+//		"total":     len(list),
+//		"video":     subVideos,
+//		"totalSize": humanize.Bytes(uint64(totalSize)),
+//	}))
+//}
 
 func realtimeVideo(c *gin.Context) {
 	mimeWriter := multipart.NewWriter(c.Writer)

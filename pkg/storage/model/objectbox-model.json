@@ -1,0 +1,141 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:1994687443603552166",
+      "lastPropertyId": "23:6811454939483702910",
+      "name": "ProjectEntity",
+      "properties": [
+        {
+          "id": "1:6994982235533928328",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:1610079536195358594",
+          "name": "Name",
+          "indexId": "1:6941035266594143747",
+          "type": 9,
+          "flags": 2080
+        },
+        {
+          "id": "3:547217713188363363",
+          "name": "Info",
+          "type": 9
+        },
+        {
+          "id": "4:987833402084319865",
+          "name": "Interval",
+          "type": 5
+        },
+        {
+          "id": "7:2752261256299973186",
+          "name": "CreatedAt",
+          "type": 10
+        },
+        {
+          "id": "10:4249619312989082471",
+          "name": "ShootingDays",
+          "type": 7
+        },
+        {
+          "id": "11:535436702901036224",
+          "name": "TotalVideoLength",
+          "type": 7
+        },
+        {
+          "id": "12:4757757768936413671",
+          "name": "PreviewVideoLength",
+          "type": 7
+        },
+        {
+          "id": "13:6091359989813993846",
+          "name": "CameraSettings",
+          "type": 23
+        },
+        {
+          "id": "14:5766839287658650703",
+          "name": "VideoFPS",
+          "type": 5
+        },
+        {
+          "id": "15:8260402102223984509",
+          "name": "VideoMaxImage",
+          "type": 5
+        },
+        {
+          "id": "16:4959251309210067918",
+          "name": "VideoFrameCount",
+          "type": 6
+        },
+        {
+          "id": "18:8524371154695624402",
+          "name": "ImageCount",
+          "type": 6
+        },
+        {
+          "id": "19:2627974856941245340",
+          "name": "LatestImageName",
+          "type": 9
+        },
+        {
+          "id": "20:2719703509981112629",
+          "name": "StartedAt",
+          "type": 10
+        },
+        {
+          "id": "21:7473525894695439415",
+          "name": "EndedAt",
+          "type": 10
+        },
+        {
+          "id": "22:4818775003864243292",
+          "name": "UpdateAt",
+          "type": 10
+        },
+        {
+          "id": "23:6811454939483702910",
+          "name": "Enable",
+          "type": 1
+        }
+      ]
+    },
+    {
+      "id": "2:8518891464527168988",
+      "lastPropertyId": "2:1004966284019481542",
+      "name": "LastRunningEntity",
+      "properties": [
+        {
+          "id": "1:3440860295687353952",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:1004966284019481542",
+          "name": "ProjectName",
+          "type": 9
+        }
+      ]
+    }
+  ],
+  "lastEntityId": "2:8518891464527168988",
+  "lastIndexId": "1:6941035266594143747",
+  "lastRelationId": "",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 5,
+  "retiredEntityUids": [],
+  "retiredIndexUids": [],
+  "retiredPropertyUids": [
+    1544006274732663528,
+    5993365843392906618,
+    3080384179639254971,
+    341627566633973784,
+    2829283066672297112
+  ],
+  "retiredRelationUids": [],
+  "version": 1
+}

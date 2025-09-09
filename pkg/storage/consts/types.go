@@ -1,13 +1,10 @@
 package consts
 
 const (
-	DefaultImagesDir       = "images"
-	DefaultVideosDir       = "videos"
-	DefaultInfoFile        = "info.json"
-	DefaultLastRunningFile = "last.json"
+	DefaultImagesDir = "images"
+	DefaultInfoFile  = "info.json"
 
 	DefaultImageExt = ".jpg"
-	DefaultVideoExt = ".avi"
 
 	DefaultFilePerm = 0666
 	DefaultDirPerm  = 0777

@@ -1,5 +1,5 @@
 build:
-	@ bash download.sh --sync --install 4.3.1
+	#bash download.sh --sync --install 4.3.1
 	@docker build --platform "linux/arm64" --output "./bin"  .
 
 build-armv7:

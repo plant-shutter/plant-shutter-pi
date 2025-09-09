@@ -2,24 +2,24 @@ package camera
 
 import (
 	"go.uber.org/zap"
+	"plant-shutter-pi/pkg/storage/model"
 
 	"github.com/vladimirvivien/go4vl/v4l2"
 
 	"plant-shutter-pi/pkg/ov"
-	"plant-shutter-pi/pkg/types"
 	"plant-shutter-pi/pkg/utils"
 )
 
 var (
 	logger       *zap.SugaredLogger
-	initSettings = types.CameraSettings{
+	initSettings = model.CameraSettings{
 		10094849: 1, // Auto Exposure: Auto Mode
 		10094868: 0, // White Balance, Auto & Preset: Manual
 		10094872: 0, // ISO Sensitivity, Auto: Manual
 
 		10291459: 90, // Compression Quality: 90
 	}
-	autoSettings = types.CameraSettings{
+	autoSettings = model.CameraSettings{
 		10094849: 0, // Auto Exposure: Auto Mode
 		10094868: 1, // White Balance, Auto & Preset: Manual
 		10094872: 1, // ISO Sensitivity, Auto: Manual

@@ -7,7 +7,7 @@ import (
 	"plant-shutter-pi/pkg/storage/consts"
 )
 
-func MsToDuration(i int) time.Duration {
+func MsToDuration(i int32) time.Duration {
 	return time.Millisecond * time.Duration(i)
 }
 

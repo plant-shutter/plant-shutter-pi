@@ -8,27 +8,30 @@ import (
 	"go.uber.org/zap"
 	"plant-shutter-pi/pkg/camera"
 	"plant-shutter-pi/pkg/plugin"
+	"plant-shutter-pi/pkg/storage"
+	"plant-shutter-pi/pkg/storage/model"
 
-	"plant-shutter-pi/pkg/storage/project"
 	"plant-shutter-pi/pkg/utils"
 )
 
 type Scheduler struct {
 	t       *time.Ticker
 	input   <-chan []byte
-	p       *project.Project
+	p       *model.Project
+	stg     *storage.Storage
 	plugins []plugin.Plugin
 	lock    sync.Mutex
 	logger  *zap.SugaredLogger
 }
 
-func New(ctx context.Context, input <-chan []byte) *Scheduler {
+func New(ctx context.Context, stg *storage.Storage, input <-chan []byte) *Scheduler {
 	t := time.NewTicker(time.Second)
 	t.Stop()
 
 	s := &Scheduler{
 		t:      t,
 		input:  input,
+		stg:    stg,
 		logger: utils.GetLogger(),
 	}
 	s.startDeal(ctx)
@@ -36,7 +39,7 @@ func New(ctx context.Context, input <-chan []byte) *Scheduler {
 	return s
 }
 
-func (s *Scheduler) Begin(p *project.Project) {
+func (s *Scheduler) Begin(p *model.Project) {
 	if p == nil {
 		s.Stop()
 	}
@@ -56,12 +59,12 @@ func (s *Scheduler) Stop() {
 	s.lock.Unlock()
 }
 
-func (s *Scheduler) GetProject() *project.Project {
+func (s *Scheduler) GetProject() *model.Project {
 	if s.p == nil {
 		return nil
 	}
 
-	return &*s.p
+	return s.p
 }
 
 func (s *Scheduler) startDeal(ctx context.Context) {
@@ -71,11 +74,6 @@ func (s *Scheduler) startDeal(ctx context.Context) {
 			case start := <-s.t.C:
 				s.deal(ctx, start)
 			case <-ctx.Done():
-				s.lock.Lock()
-				if s.p != nil {
-					_ = s.p.Close()
-				}
-				s.lock.Unlock()
 				s.logger.Info("scheduler: stopped!")
 				return
 			}
@@ -114,6 +112,10 @@ func (s *Scheduler) deal(ctx context.Context, start time.Time) {
 	err := s.p.SaveImage(frame)
 	if err != nil {
 		s.logger.Warnf("scheduler: save image err: %s", err)
+	}
+	err = s.stg.UpdateProject(s.p)
+	if err != nil {
+		s.logger.Warnf("scheduler: save update image err: %s", err)
 	}
 
 	s.logger.Infof("scheduler: took %s to get the image", time.Now().Sub(start))

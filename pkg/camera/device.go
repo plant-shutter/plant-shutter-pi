@@ -11,7 +11,7 @@ import (
 	"github.com/vladimirvivien/go4vl/device"
 	"github.com/vladimirvivien/go4vl/v4l2"
 	"plant-shutter-pi/pkg/ov"
-	"plant-shutter-pi/pkg/types"
+	"plant-shutter-pi/pkg/storage/model"
 )
 
 var (
@@ -99,14 +99,14 @@ func (c *Camera) AutoSettings() {
 	c.UpdateSettings(autoSettings)
 }
 
-func (c *Camera) UpdateSettings(settings types.CameraSettings) {
+func (c *Camera) UpdateSettings(settings model.CameraSettings) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	c.applySettings(settings)
 }
 
-func (c *Camera) applySettings(settings types.CameraSettings) {
+func (c *Camera) applySettings(settings model.CameraSettings) {
 	if c.camera == nil {
 		return
 	}
@@ -187,14 +187,14 @@ func (c *Camera) getKnownCtrlConfigs() ([]ov.Config, error) {
 	return res, nil
 }
 
-func (c *Camera) GetKnownCtrlSettings() (types.CameraSettings, error) {
+func (c *Camera) GetKnownCtrlSettings() (model.CameraSettings, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.camera == nil {
 		return nil, errors.New("camera not started")
 	}
 
-	res := make(types.CameraSettings)
+	res := make(model.CameraSettings)
 	for _, id := range knownCtrlID {
 		ctrl, err := v4l2.GetControl(c.camera.Fd(), id)
 		if err != nil {
