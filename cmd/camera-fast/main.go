@@ -87,6 +87,6 @@ func main() {
 	frames = camera.GetOutput()
 
 	log.Printf("Serving images: [%s/stream]", port)
-	http.HandleFunc("/stream", imageServ)
+	http.HandleFunc("/", imageServ)
 	log.Fatal(http.ListenAndServe(port, nil))
 }

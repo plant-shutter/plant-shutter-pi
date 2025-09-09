@@ -38,7 +38,7 @@ func (c *Camera) open(width, height int) error {
 	}
 	camera, err := device.Open(
 		c.devName,
-		device.WithFPS(30),
+		device.WithFPS(10),
 		device.WithBufferSize(1),
 		device.WithPixFormat(v4l2.PixFormat{
 			PixelFormat: v4l2.PixelFmtJPEG,

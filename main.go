@@ -449,6 +449,7 @@ func updateProject(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	logger.Info(p)
 
 	pj, err := stg.GetProject(p.Name)
 	if err != nil {
@@ -799,10 +800,15 @@ func realtimeVideo(c *gin.Context) {
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Add("Content-Type", "image/jpeg")
 
+	frame, ok := camera.DrainLatest(c, nil, frames)
+	if !ok {
+		logger.Warn("realtime video frames close")
+		return
+	}
 	for {
 		select {
-		case frame := <-frames:
-			frame, ok := camera.DrainLatest(c, frame, frames)
+		case frame, ok = <-frames:
+			//frame, ok := camera.DrainLatest(c, frame, frames)
 			if !ok {
 				logger.Warn("realtime video frames close")
 				return
