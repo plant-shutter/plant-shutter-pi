@@ -3,20 +3,36 @@ package main
 import (
 	"log"
 
-	"plant-shutter-pi/pkg/storage"
+	"github.com/objectbox/objectbox-go/objectbox"
+	"plant-shutter-pi/pkg/model"
 )
 
-func main() {
-	s, err := storage.New("plant-project")
+func initObjectBox() *objectbox.ObjectBox {
+	objectBox, err := objectbox.NewBuilder().Model(model.ObjectBoxModel()).Build()
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-	ps, err := s.ListProjects()
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, p := range ps {
-		log.Println(p.Name)
+	return objectBox
+}
 
-	}
+func main() {
+	// load objectbox
+	ob := initObjectBox()
+	defer ob.Close() // In a server app, you would just keep ob and close on shutdown
+
+	box := model.BoxForTask(ob)
+
+	// Create
+	id, _ := box.Put(&model.Task{
+		Text: "Buy milk",
+	})
+
+	task, _ := box.Get(id) // Read
+	log.Println(task.Text)
+	task.Text += " & some bread"
+	box.Put(task)         // Update
+	task, _ = box.Get(id) // Read
+	log.Println(task.Text)
+
+	box.Remove(task) // Delete
 }

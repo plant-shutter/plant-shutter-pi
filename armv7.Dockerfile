@@ -10,14 +10,14 @@ RUN --mount=type=cache,sharing=private,target=/var/cache/apt \
   goxx-apt-get install -y gcc-arm-linux-gnueabi binutils gcc g++ pkg-config wget
 
 RUN wget https://raw.githubusercontent.com/objectbox/objectbox-c/main/download.sh
-RUN bash download.sh --sync --install 4.3.1 Linux aarch64 || true
+RUN bash download.sh --sync --install 4.3.1 Linux armv7hf || true
 
 
 RUN --mount=type=bind,source=. \
   --mount=type=cache,target=/root/.cache \
   --mount=type=cache,target=/go/pkg/mod \
   export GOPROXY=https://proxy.golang.com.cn && \
-  export CC=arm-linux-gnueabihf-gcc && \
+  export CC=arm-linux-gnueabi-gcc && \
 #  goxx-go build -o /out/${OUTPUT} main.go
 #  goxx-go build -o /out/${OUTPUT} cmd/preview-test/main.go
 #  goxx-go build -o /out/${OUTPUT} cmd/camera/main.go
