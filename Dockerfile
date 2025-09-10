@@ -23,7 +23,7 @@ RUN --mount=type=bind,source=. \
 #  goxx-go build -o /out/${OUTPUT} cmd/camera/main.go
 #  goxx-go build -o /out/${OUTPUT} cmd/test/main.go
 #  goxx-go build -o /out/${OUTPUT} cmd/camera-fast/main.go
-  goxx-go build -o /out/${OUTPUT} cmd/h264/main.go
+  goxx-go build -o /out/${OUTPUT} cmd/h264-raw/main.go
 
 FROM scratch AS artifact
 COPY --from=build /out /

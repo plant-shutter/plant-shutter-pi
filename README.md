@@ -120,6 +120,7 @@ sudo raspi-config
 > https://gist.github.com/logrusorgru/570d64fd6a051e0441014387b89286ca
 > https://github.com/nfnt/resize
 > https://github.com/icza/mjpeg
+> https://github.com/131/h264-live-player
 
 ### pi camera
 
