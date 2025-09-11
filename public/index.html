@@ -1,30 +1,170 @@
-<html>
-  <head>
-    <title>h264-live-player web client demo</title>
-  </head>
-  <body>
+<canvas id="cv" width="1920" height="1080"></canvas>
+<div id="hud" style="position:fixed;left:8px;top:8px;background:rgba(0,0,0,.6);color:#0f0;padding:6px 8px;font:12px/1.4 monospace;z-index:10;white-space:pre;max-width:45vw;max-height:40vh;overflow:auto"></div>
+<script>
+    const cvs = document.getElementById('cv');
+    const ctx = cvs.getContext('2d');
+    const hud = document.getElementById('hud');
 
-    <button type="button" onclick="wsavc.playStream()">Start Video</button>
-    <button type="button" onclick="wsavc.stopStream()">Stop Video</button>
-    <button type="button" onclick="wsavc.disconnect()">Disconnect</button>
-    <br/>
+    // HUD + counters for debugging
+    const stats = {
+        configured: false,
+        wsOpen: false,
+        wsErrors: 0,
+        rxText: 0,
+        rxBytes: 0,
+        rxFrames: 0,
+        dropsNoConfig: 0,
+        dropsNoKey: 0,
+        dropsNoStartCode: 0,
+        decoded: 0,
+        last: ''
+    };
+    let getDQ = () => 0; // decodeQueueSize accessor (set after decoder created)
+    function updateHUD() {
+        if (!hud) return;
+        hud.textContent = [
+            `ws: ${stats.wsOpen ? 'open' : 'closed'} errors:${stats.wsErrors}`,
+            `configured: ${stats.configured}`,
+            `rx text:${stats.rxText} bytes:${stats.rxBytes} frames:${stats.rxFrames}`,
+            `drops noConfig:${stats.dropsNoConfig} noKey:${stats.dropsNoKey} noStart:${stats.dropsNoStartCode}`,
+            `decoded:${stats.decoded} dq:${getDQ()}`,
+            `last: ${stats.last}`
+        ].join('\n');
+    }
+    function setLast(msg) { stats.last = String(msg); console.log('[video]', msg); updateHUD(); }
 
-  <!-- provide WSAvcPlayer -->
-    <script type="text/javascript" src="http-live-player.js">;</script>
-    <script type="text/javascript">
+    if (!('VideoDecoder' in window)) {
+        alert('WebCodecs not supported');
+    }
 
-var canvas = document.createElement("canvas");
-document.body.appendChild(canvas);
+    const dec = new VideoDecoder({
+        output: async (frame) => {              // 渲染
+            const bmp = await createImageBitmap(frame);
+            ctx.drawImage(bmp, 0, 0);
+            frame.close();
+            stats.decoded++;
+            updateHUD();
+        },
+        error: e => { console.error(e); setLast('decoder error: ' + e); }
+    });
+    getDQ = () => dec.decodeQueueSize;
 
-// Create h264 player
-var uri = "ws://" + document.location.host + "/stream";
-var wsavc = new WSAvcPlayer(canvas, "webgl", 1, 35);
-wsavc.connect(uri);
+    // 选择合适的 codec string（示例：H.264 Baseline@L3.1）
+    // 在收到服务端 init 消息后再 configure，避免尺寸不一致
+    // VideoDecoder.configure 是同步方法，无需 await
 
+    var uri = "wss://" + document.location.host + '/video';
+    const ws = new WebSocket(uri);
+    ws.binaryType = 'arraybuffer';
 
-//expose instance for button callbacks
-window.wsavc = wsavc;
+    let t0 = performance.now();               // 简易时间戳（生产中请用服务端 PTS）
+    let seenKey = false;                      // 解码前需要关键帧
+    let configured = false;                   // 等待 init 后再配置解码器
 
-    </script>
-  </body>
-</html>
+    ws.addEventListener('open', () => { stats.wsOpen = true; setLast('ws open'); });
+    ws.addEventListener('close', (e) => { stats.wsOpen = false; setLast('ws close ' + e.code); });
+    ws.addEventListener('error', (e) => { stats.wsErrors++; setLast('ws error'); console.error(e); });
+
+    function isAnnexBKeyFrame(bytes) {
+        // 找到第一条 VCL NAL（type 1/5），5 表示 IDR（关键帧）
+        for (let i = 0; i + 4 < bytes.length; i++) {
+            if (bytes[i]===0 && bytes[i+1]===0 && bytes[i+2]===0 && bytes[i+3]===1) {
+                const nalType = bytes[i+4] & 0x1f;
+                if (nalType === 5) return true;   // IDR
+                if (nalType === 1) return false;  // 非 IDR VCL
+            }
+        }
+        return false;
+    }
+
+    function hasStartCode(bytes) {
+        for (let i = 0; i + 3 < bytes.length; i++) {
+            if (bytes[i]===0 && bytes[i+1]===0 && bytes[i+2]===0 && bytes[i+3]===1) return true;
+        }
+        return false;
+    }
+
+    function listNalTypes(bytes, limit=64) {
+        const types = [];
+        let count = 0;
+        for (let i = 0; i + 4 < bytes.length && count < limit; i++) {
+            if (bytes[i]===0 && bytes[i+1]===0 && bytes[i+2]===0 && bytes[i+3]===1) {
+                types.push(bytes[i+4] & 0x1f); count++;
+            }
+        }
+        return types;
+    }
+
+    ws.onmessage = ({ data }) => {
+        // 服务器会先发一个 JSON init 消息，用来告知宽高
+        if (typeof data === 'string') {
+            stats.rxText++;
+            try {
+                const msg = JSON.parse(data);
+                if (msg.action === 'init') {
+                    if (typeof msg.width === 'number') cvs.width = msg.width;
+                    if (typeof msg.height === 'number') cvs.height = msg.height;
+                    if (!configured) {
+                        try {
+                            dec.configure({ codec: 'avc1.42E01F', codedWidth: cvs.width, codedHeight: cvs.height });
+                            configured = true;
+                            seenKey = false; // 配置后需要新的关键帧
+                            stats.configured = true;
+                            setLast(`configured decoder ${cvs.width}x${cvs.height}`);
+                        } catch (e) {
+                            setLast('configure failed: ' + e);
+                            console.error(e);
+                        }
+                    }
+                }
+            } catch (_) {}
+            return;
+        }
+
+        const au = new Uint8Array(data); // 期望是 Annex-B 访问单元（含 0x00000001 起始码）
+        stats.rxBytes += au.length;
+        stats.rxFrames++;
+
+        if (!hasStartCode(au)) { stats.dropsNoStartCode++; setLast('drop: no start code'); return; }
+        const types = listNalTypes(au);
+        const isKey = isAnnexBKeyFrame(au);
+        if (!configured) { stats.dropsNoConfig++; setLast('drop: not configured'); return; }
+        if (!seenKey) {
+            if (!isKey) { stats.dropsNoKey++; setLast('drop: waiting keyframe types=' + types.join(',')); return; }
+            seenKey = true;               // 从关键帧开始送入解码器
+            setLast('got keyframe types=' + types.join(','));
+        }
+
+        // 生成时间戳（微秒）。实际生产：用真实 PTS，并考虑 B 帧重排。
+        const ts = Math.round((performance.now() - t0) * 1000);
+
+        const chunk = new EncodedVideoChunk({
+            type: isKey ? 'key' : 'delta',
+            timestamp: ts,
+            data: au
+        });
+        try {
+            dec.decode(chunk);
+            updateHUD();
+        } catch (e) {
+            setLast('decode() threw: ' + e);
+            console.error(e);
+        }
+    };
+
+    // Check codec support once
+    (async () => {
+        try {
+            const testCfg = { codec: 'avc1.42E01F', codedWidth: 1920, codedHeight: 1080 };
+            const sup = await VideoDecoder.isConfigSupported(testCfg);
+            setLast(`support codec ${testCfg.codec}: ${sup.supported}`);
+        } catch (e) {
+            setLast('isConfigSupported failed: ' + e);
+        }
+    })();
+
+    window.addEventListener('error', (e) => { setLast('window error: ' + e.message); });
+    window.addEventListener('unhandledrejection', (e) => { setLast('unhandledrejection: ' + (e.reason && e.reason.message || e.reason)); });
+
+    updateHUD();
+</script>
