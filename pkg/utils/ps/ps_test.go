@@ -18,7 +18,7 @@ func TestPS(t *testing.T) {
 	//}
 	//log.Println(c)
 
-	a, err := DirDiskUsage("C:\\Users\\85761\\repo\\plant-shutter-pi\\pkg\\types")
+	a, err := DirDiskUsage(".")
 	if err != nil {
 		panic(err)
 	}
