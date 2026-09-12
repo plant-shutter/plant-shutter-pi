@@ -1,0 +1,3 @@
+[submodule "third_party/go4vl"]
+	path = third_party/go4vl
+	url = git@github.com:vincent-vinf/go4vl.git
