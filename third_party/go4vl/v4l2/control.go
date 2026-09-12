@@ -1,8 +1,7 @@
 package v4l2
 
 /*
-#cgo linux CFLAGS: -I ${SRCDIR}/../include/
-#include <linux/videodev2.h>
+#include "compat.h"
 */
 import "C"
 import (
@@ -17,6 +16,28 @@ import (
 // See https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/control.html
 // See https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/videodev2.h#L1740
 type CtrlValue = int32
+
+// CtrlFlag represents flags for V4L2 controls
+type CtrlFlag = uint32
+
+// Control flags
+// See https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/videodev2.h
+const (
+	CtrlFlagDisabled        CtrlFlag = C.V4L2_CTRL_FLAG_DISABLED
+	CtrlFlagGrabbed         CtrlFlag = C.V4L2_CTRL_FLAG_GRABBED
+	CtrlFlagReadOnly        CtrlFlag = C.V4L2_CTRL_FLAG_READ_ONLY
+	CtrlFlagUpdate          CtrlFlag = C.V4L2_CTRL_FLAG_UPDATE
+	CtrlFlagInactive        CtrlFlag = C.V4L2_CTRL_FLAG_INACTIVE
+	CtrlFlagSlider          CtrlFlag = C.V4L2_CTRL_FLAG_SLIDER
+	CtrlFlagWriteOnly       CtrlFlag = C.V4L2_CTRL_FLAG_WRITE_ONLY
+	CtrlFlagVolatile        CtrlFlag = C.V4L2_CTRL_FLAG_VOLATILE
+	CtrlFlagHasPayload      CtrlFlag = C.V4L2_CTRL_FLAG_HAS_PAYLOAD
+	CtrlFlagExecuteOnWrite  CtrlFlag = C.V4L2_CTRL_FLAG_EXECUTE_ON_WRITE
+	CtrlFlagModifyLayout    CtrlFlag = C.V4L2_CTRL_FLAG_MODIFY_LAYOUT
+	CtrlFlagDynamicArray    CtrlFlag = C.V4L2_CTRL_FLAG_DYNAMIC_ARRAY
+	CtrlFlagNextCtrl        CtrlFlag = C.V4L2_CTRL_FLAG_NEXT_CTRL
+	CtrlFlagNextCompound    CtrlFlag = C.V4L2_CTRL_FLAG_NEXT_COMPOUND
+)
 
 // Control (v4l2_control)
 //
@@ -37,14 +58,21 @@ type Control struct {
 	Maximum int32
 	Step    int32
 	Default int32
-	flags   uint32
+	Flags   uint32
 }
 
+// ControlMenuItem represents a single option in a menu-type V4L2 control.
+// Menu controls allow selection from a discrete set of named options,
+// such as white balance modes, scene modes, or power line frequency settings.
 type ControlMenuItem struct {
-	ID    uint32
+	// ID is the control identifier this menu item belongs to
+	ID uint32
+	// Index is the menu item's position in the menu (starting from 0)
 	Index uint32
+	// Value is the numeric value associated with this menu option
 	Value uint32
-	Name  string
+	// Name is the human-readable label for this menu option
+	Name string
 }
 
 // IsMenu tests whether control Type == CtrlTypeMenu || Type == CtrlIntegerMenu
@@ -92,7 +120,7 @@ func GetControlValue(fd uintptr, id CtrlID) (CtrlValue, error) {
 func SetControlValue(fd uintptr, id CtrlID, val CtrlValue) error {
 	ctrlInfo, err := QueryControlInfo(fd, id)
 	if err != nil {
-		return fmt.Errorf("set control value: id %s: %w", id, err)
+		return fmt.Errorf("set control value: id %d: %w", id, err)
 	}
 	if val < ctrlInfo.Minimum || val > ctrlInfo.Maximum {
 		return fmt.Errorf("set control value: out-of-range failure: val %d: expected ctrl.Min %d, ctrl.Max %d", val, ctrlInfo.Minimum, ctrlInfo.Maximum)
@@ -134,7 +162,7 @@ func GetControl(fd uintptr, id CtrlID) (Control, error) {
 	// retrieve control value
 	ctrlValue, err := GetControlValue(fd, uint32(id))
 	if err != nil {
-		return Control{}, fmt.Errorf("get control: %w", id, err)
+		return Control{}, fmt.Errorf("get control: id %d: %w", id, err)
 	}
 
 	control.Value = ctrlValue
@@ -171,7 +199,7 @@ func makeControl(qryCtrl C.struct_v4l2_queryctrl) Control {
 		Minimum: int32(qryCtrl.minimum),
 		Step:    int32(qryCtrl.step),
 		Default: int32(qryCtrl.default_value),
-		flags:   uint32(qryCtrl.flags),
+		Flags:   uint32(qryCtrl.flags),
 	}
 }
 

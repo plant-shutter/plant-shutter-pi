@@ -1,6 +1,6 @@
 package v4l2
 
-// #include <linux/videodev2.h>
+// #include "compat.h"
 import "C"
 
 import (
@@ -13,38 +13,95 @@ import (
 // Streaming with Buffers
 // See https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/buffer.html
 
-// BufType (v4l2_buf_type)
-// https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/buffer.html?highlight=v4l2_buf_type#c.V4L.v4l2_buf_type
-// https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/videodev2.h#L141
+// BufType specifies the type of V4L2 buffer used for data transfer.
+// It determines whether the buffer is for video capture, output, or other purposes.
+// This type corresponds to v4l2_buf_type in the kernel API.
+//
+// References:
+//   - https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/buffer.html?highlight=v4l2_buf_type#c.V4L.v4l2_buf_type
+//   - https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/videodev2.h#L141
 type BufType = uint32
 
+// Buffer type constants define the direction and purpose of data flow.
 const (
+	// BufTypeVideoCapture is for video capture buffers (camera/tuner input).
+	// Used when reading frames from a video source.
 	BufTypeVideoCapture BufType = C.V4L2_BUF_TYPE_VIDEO_CAPTURE
-	BufTypeVideoOutput  BufType = C.V4L2_BUF_TYPE_VIDEO_OUTPUT
-	BufTypeOverlay      BufType = C.V4L2_BUF_TYPE_VIDEO_OVERLAY
+
+	// BufTypeVideoOutput is for video output buffers (display/encoder output).
+	// Used when sending frames to a video sink.
+	BufTypeVideoOutput BufType = C.V4L2_BUF_TYPE_VIDEO_OUTPUT
+
+	// BufTypeOverlay is for video overlay buffers.
+	// Used for hardware overlay onto a display.
+	BufTypeOverlay BufType = C.V4L2_BUF_TYPE_VIDEO_OVERLAY
 )
 
-// IOType (v4l2_memory)
-// https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/mmap.html?highlight=v4l2_memory_mmap
-// https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/videodev2.h#L188
+// IOType specifies the I/O method for transferring data between userspace and the V4L2 device.
+// Different I/O types offer various trade-offs between performance, complexity, and memory usage.
+// This type corresponds to v4l2_memory in the kernel API.
+//
+// References:
+//   - https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/mmap.html?highlight=v4l2_memory_mmap
+//   - https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/videodev2.h#L188
 type IOType = uint32
 
+// I/O type constants define how buffers are allocated and accessed.
 const (
-	IOTypeMMAP    IOType = C.V4L2_MEMORY_MMAP
+	// IOTypeMMAP uses memory-mapped buffers for zero-copy data transfer.
+	// This is the most efficient and commonly supported I/O method.
+	// Buffers are allocated by the driver and mapped into userspace.
+	IOTypeMMAP IOType = C.V4L2_MEMORY_MMAP
+
+	// IOTypeUserPtr uses application-allocated buffers.
+	// The application provides memory pointers to the driver.
+	// Requires contiguous physical memory in some cases.
 	IOTypeUserPtr IOType = C.V4L2_MEMORY_USERPTR
+
+	// IOTypeOverlay writes directly to video memory for display.
+	// Deprecated in newer kernels.
 	IOTypeOverlay IOType = C.V4L2_MEMORY_OVERLAY
-	IOTypeDMABuf  IOType = C.V4L2_MEMORY_DMABUF
+
+	// IOTypeDMABuf uses DMA buffer sharing for inter-device communication.
+	// Allows zero-copy sharing between V4L2 and other subsystems like DRM.
+	// Requires DMABUF support in both driver and hardware.
+	IOTypeDMABuf IOType = C.V4L2_MEMORY_DMABUF
 )
 
+// BufFlag represents buffer status flags that indicate the state of a V4L2 buffer.
+// These flags are set by the driver and/or application to track buffer lifecycle
+// and provide metadata about the buffer contents.
 type BufFlag = uint32
 
+// Buffer flag constants indicate buffer state and frame metadata.
 const (
-	BufFlagMapped              BufFlag = C.V4L2_BUF_FLAG_MAPPED
-	BufFlagQueued              BufFlag = C.V4L2_BUF_FLAG_QUEUED
-	BufFlagDone                BufFlag = C.V4L2_BUF_FLAG_DONE
-	BufFlagKeyFrame            BufFlag = C.V4L2_BUF_FLAG_KEYFRAME
-	BufFlagPFrame              BufFlag = C.V4L2_BUF_FLAG_PFRAME
-	BufFlagBFrame              BufFlag = C.V4L2_BUF_FLAG_BFRAME
+	// BufFlagMapped indicates the buffer is memory-mapped into userspace.
+	// Set when the buffer has been successfully mapped with mmap().
+	BufFlagMapped BufFlag = C.V4L2_BUF_FLAG_MAPPED
+
+	// BufFlagQueued indicates the buffer is queued for I/O.
+	// The buffer is owned by the driver and should not be accessed by the application.
+	BufFlagQueued BufFlag = C.V4L2_BUF_FLAG_QUEUED
+
+	// BufFlagDone indicates the buffer has been processed and contains valid data.
+	// For capture: buffer contains a captured frame.
+	// For output: buffer has been displayed/transmitted.
+	BufFlagDone BufFlag = C.V4L2_BUF_FLAG_DONE
+
+	// BufFlagKeyFrame indicates the buffer contains a keyframe (I-frame).
+	// Used with compressed video streams.
+	BufFlagKeyFrame BufFlag = C.V4L2_BUF_FLAG_KEYFRAME
+
+	// BufFlagPFrame indicates the buffer contains a P-frame (predicted frame).
+	// Used with compressed video streams.
+	BufFlagPFrame BufFlag = C.V4L2_BUF_FLAG_PFRAME
+
+	// BufFlagBFrame indicates the buffer contains a B-frame (bi-directional predicted frame).
+	// Used with compressed video streams.
+	BufFlagBFrame BufFlag = C.V4L2_BUF_FLAG_BFRAME
+
+	// BufFlagError indicates an error occurred during capture/output.
+	// The buffer contents are likely invalid.
 	BufFlagError               BufFlag = C.V4L2_BUF_FLAG_ERROR
 	BufFlagInRequest           BufFlag = C.V4L2_BUF_FLAG_IN_REQUEST
 	BufFlagTimeCode            BufFlag = C.V4L2_BUF_FLAG_TIMECODE
@@ -171,7 +228,7 @@ func StreamOff(dev StreamingDevice) error {
 // for video capture or video output when using either mem map, user pointer, or DMA buffers.
 // See https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/vidioc-reqbufs.html#vidioc-reqbufs
 func InitBuffers(dev StreamingDevice) (RequestBuffers, error) {
-	if dev.MemIOType() != IOTypeMMAP && dev.MemIOType() != IOTypeDMABuf {
+	if dev.MemIOType() != IOTypeMMAP && dev.MemIOType() != IOTypeUserPtr && dev.MemIOType() != IOTypeDMABuf {
 		return RequestBuffers{}, fmt.Errorf("request buffers: %w", ErrorUnsupported)
 	}
 	var req C.struct_v4l2_requestbuffers
@@ -190,7 +247,7 @@ func InitBuffers(dev StreamingDevice) (RequestBuffers, error) {
 // buffers. Useful when shuttingdown the stream.
 // See https://linuxtv.org/downloads/v4l-dvb-apis-new/userspace-api/v4l/vidioc-reqbufs.html
 func ResetBuffers(dev StreamingDevice) (RequestBuffers, error) {
-	if dev.MemIOType() != IOTypeMMAP && dev.MemIOType() != IOTypeDMABuf {
+	if dev.MemIOType() != IOTypeMMAP && dev.MemIOType() != IOTypeUserPtr && dev.MemIOType() != IOTypeDMABuf {
 		return RequestBuffers{}, fmt.Errorf("reset buffers: %w", ErrorUnsupported)
 	}
 	var req C.struct_v4l2_requestbuffers
@@ -252,6 +309,16 @@ func MapMemoryBuffers(dev StreamingDevice) ([][]byte, error) {
 	return buffers, nil
 }
 
+// AllocateUserBuffers creates application-managed buffers for USERPTR streaming.
+// Each buffer is allocated with the specified size (typically pixFormat.SizeImage).
+func AllocateUserBuffers(count int, size uint32) [][]byte {
+	buffers := make([][]byte, count)
+	for i := range buffers {
+		buffers[i] = make([]byte, size)
+	}
+	return buffers
+}
+
 // unmapMemoryBuffer removes the buffer that was previously mapped.
 func unmapMemoryBuffer(buf []byte) error {
 	if err := sys.Munmap(buf); err != nil {
@@ -288,6 +355,58 @@ func QueueBuffer(fd uintptr, ioType IOType, bufType BufType, index uint32) (Buff
 	}
 
 	return makeBuffer(v4l2Buf), nil
+}
+
+// QueueBufferUserPtr enqueues a user-pointer buffer in the device driver.
+// The application provides the buffer address and length. Used with IOTypeUserPtr streaming.
+// https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/vidioc-qbuf.html#vidioc-qbuf
+func QueueBufferUserPtr(fd uintptr, bufType BufType, index uint32, ptr uintptr, length uint32) (Buffer, error) {
+	var v4l2Buf C.struct_v4l2_buffer
+	v4l2Buf._type = C.uint(bufType)
+	v4l2Buf.memory = C.uint(IOTypeUserPtr)
+	v4l2Buf.index = C.uint(index)
+	v4l2Buf.length = C.uint(length)
+	*(*C.ulong)(unsafe.Pointer(&v4l2Buf.m[0])) = C.ulong(ptr)
+
+	if err := send(fd, C.VIDIOC_QBUF, uintptr(unsafe.Pointer(&v4l2Buf))); err != nil {
+		return Buffer{}, fmt.Errorf("buffer queue userptr: %w", err)
+	}
+
+	return makeBuffer(v4l2Buf), nil
+}
+
+// QueueBufferDMABuf enqueues a DMA-BUF buffer in the device driver.
+// The application provides the DMA-BUF file descriptor and buffer length.
+// https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/vidioc-qbuf.html#vidioc-qbuf
+func QueueBufferDMABuf(fd uintptr, bufType BufType, index uint32, dmabufFD int32, length uint32) (Buffer, error) {
+	var v4l2Buf C.struct_v4l2_buffer
+	v4l2Buf._type = C.uint(bufType)
+	v4l2Buf.memory = C.uint(IOTypeDMABuf)
+	v4l2Buf.index = C.uint(index)
+	v4l2Buf.length = C.uint(length)
+	*(*C.int)(unsafe.Pointer(&v4l2Buf.m[0])) = C.int(dmabufFD)
+
+	if err := send(fd, C.VIDIOC_QBUF, uintptr(unsafe.Pointer(&v4l2Buf))); err != nil {
+		return Buffer{}, fmt.Errorf("buffer queue dmabuf: %w", err)
+	}
+
+	return makeBuffer(v4l2Buf), nil
+}
+
+// ExportBuffer exports a V4L2 buffer as a DMA-BUF file descriptor.
+// The buffer must have been allocated with MMAP. The returned fd can be
+// passed to other subsystems (GPU, DRM, other V4L2 devices).
+// https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/vidioc-expbuf.html
+func ExportBuffer(devFD uintptr, bufType BufType, index uint32, flags uint32) (int32, error) {
+	var exp C.struct_v4l2_exportbuffer
+	exp._type = C.uint(bufType)
+	exp.index = C.uint(index)
+	exp.flags = C.uint(flags)
+
+	if err := send(devFD, C.VIDIOC_EXPBUF, uintptr(unsafe.Pointer(&exp))); err != nil {
+		return 0, fmt.Errorf("export buffer: %w", err)
+	}
+	return int32(exp.fd), nil
 }
 
 // DequeueBuffer dequeues a buffer in the device driver, marking it as consumed by the application,
