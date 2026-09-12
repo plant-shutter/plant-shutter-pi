@@ -83,6 +83,7 @@ func main() {
 	defer logger.Sync()
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	var err error
 
 	webdavServer = webdav.New(ctx, *webdavPort, *storageDir)
 
