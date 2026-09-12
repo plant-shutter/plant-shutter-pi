@@ -5,19 +5,27 @@ ENV CGO_ENABLED=1
 WORKDIR /src
 
 ARG TARGETPLATFORM
+COPY objectbox-install/v5.3.2/objectbox-linux-armv7hf.tar.gz /tmp/objectbox.tar.gz
+
 RUN --mount=type=cache,sharing=private,target=/var/cache/apt \
   --mount=type=cache,sharing=private,target=/var/lib/apt/lists \
-  goxx-apt-get install -y gcc-arm-linux-gnueabi binutils gcc g++ pkg-config wget
+  goxx-apt-get install -y gcc-arm-linux-gnueabihf binutils gcc g++ pkg-config
 
-RUN wget https://raw.githubusercontent.com/objectbox/objectbox-c/main/download.sh
-RUN bash download.sh --sync --install 4.3.1 Linux armv7hf || true
+RUN mkdir -p /opt/objectbox/include /opt/objectbox/lib && \
+  tar -xzf /tmp/objectbox.tar.gz -C /opt/objectbox && \
+  ln -s /opt/objectbox/lib/libobjectbox.so /usr/lib/arm-linux-gnueabihf/libobjectbox.so
 
 
 RUN --mount=type=bind,source=. \
   --mount=type=cache,target=/root/.cache \
   --mount=type=cache,target=/go/pkg/mod \
   export GOPROXY=https://proxy.golang.com.cn && \
-  export CC=arm-linux-gnueabi-gcc && \
+  export CC=arm-linux-gnueabihf-gcc && \
+  export CGO_CFLAGS=-I/opt/objectbox/include && \
+  export CGO_LDFLAGS='-L/opt/objectbox/lib' && \
+  goxx-go build -o /out/${OUTPUT} cmd/test/main.go && \
+  mkdir -p /out/lib && \
+  cp -L /opt/objectbox/lib/libobjectbox.so /out/lib/
 #  goxx-go build -o /out/${OUTPUT} main.go
 #  goxx-go build -o /out/${OUTPUT} cmd/preview-test/main.go
 #  goxx-go build -o /out/${OUTPUT} cmd/camera/main.go
