@@ -66,6 +66,10 @@ func (c *Camera) Start(width, height int) (<-chan []byte, error) {
 	newCtx, cancel := context.WithCancel(c.ctx)
 	c.cancel = cancel
 	if err = c.camera.Start(newCtx); err != nil {
+		cancel()
+		_ = c.camera.Close()
+		c.camera = nil
+		c.cancel = nil
 		return nil, err
 	}
 
@@ -83,6 +87,9 @@ func (c *Camera) Stop() error {
 		c.cancel = nil
 	}
 	if c.camera != nil {
+		// Stop the V4L2 stream synchronously before closing the descriptor; this
+		// prevents the next mode from seeing a transient EBUSY on legacy drivers.
+		_ = c.camera.Stop()
 		err := c.camera.Close()
 		c.camera = nil
 		return err
@@ -165,6 +172,13 @@ func (c *Camera) GetKnownCtrlConfigs() ([]ov.Config, error) {
 	return res, nil
 }
 
+func (c *Camera) getControl(id v4l2.CtrlID) (v4l2.Control, error) {
+	if c.camera == nil {
+		return v4l2.Control{}, errors.New("camera not started")
+	}
+	return v4l2.GetControl(c.camera.Fd(), id)
+}
+
 func (c *Camera) getKnownCtrlConfigs() ([]ov.Config, error) {
 	if c.camera == nil {
 		return nil, errors.New("camera not started")
@@ -209,11 +223,25 @@ func (c *Camera) GetKnownCtrlSettings() (model.CameraSettings, error) {
 func (c *Camera) GetMaxSize() (width, height int, err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	if c.camera == nil {
-		return 0, 0, errors.New("camera not started")
+	// Resolution discovery is also needed before the first stream is started
+	// when the capture dimensions were omitted on the command line. Opening a
+	// short-lived device handle lets callers query the advertised formats in
+	// that initial state while preserving the existing fast path for an active
+	// camera.
+	fd := uintptr(0)
+	var probe *device.Device
+	if c.camera != nil {
+		fd = c.camera.Fd()
+	} else {
+		probe, err = device.Open(c.devName)
+		if err != nil {
+			return 0, 0, fmt.Errorf("open camera for resolution discovery: %w", err)
+		}
+		defer probe.Close()
+		fd = probe.Fd()
 	}
 
-	sizes, err := v4l2.GetAllFormatFrameSizes(c.camera.Fd())
+	sizes, err := v4l2.GetAllFormatFrameSizes(fd)
 	if err != nil {
 		return
 	}

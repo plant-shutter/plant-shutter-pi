@@ -53,7 +53,7 @@
     // 在收到服务端 init 消息后再 configure，避免尺寸不一致
     // VideoDecoder.configure 是同步方法，无需 await
 
-    var uri = "wss://" + document.location.host + '/video';
+    var uri = (document.location.protocol === 'https:' ? 'wss://' : 'ws://') + document.location.host + '/api/device/preview';
     const ws = new WebSocket(uri);
     ws.binaryType = 'arraybuffer';
 

@@ -80,7 +80,7 @@ func (s *Storage) GetProject(name string) (*model.Project, error) {
 	return p, nil
 }
 
-func (s *Storage) NewProject(name, info string, interval int32, camera model.CameraSettings, video model.VideoSetting) (*model.Project, error) {
+func (s *Storage) NewProject(name, info string, interval int32, camera model.CameraSettings) (*model.Project, error) {
 	existing, err := s.GetProject(name)
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func (s *Storage) NewProject(name, info string, interval int32, camera model.Cam
 		return nil, fmt.Errorf("project name already exists")
 	}
 
-	p, err := model.New(name, info, interval, s.rootDir, camera, video)
+	p, err := model.New(name, info, interval, s.rootDir, camera)
 	if err != nil {
 		return nil, err
 	}

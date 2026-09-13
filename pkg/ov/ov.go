@@ -10,19 +10,19 @@ import (
 )
 
 type NewProject struct {
-	Name     string              `json:"name" binding:"required"`
-	Info     string              `json:"info"`
-	Interval *int32              `json:"interval"`
-	Video    *model.VideoSetting `json:"video"`
+	Name     string               `json:"name" binding:"required"`
+	Info     string               `json:"info"`
+	Interval *int32               `json:"interval"`
+	Camera   model.CameraSettings `json:"camera"`
 }
 
 type UpdateProject struct {
-	Name     string              `json:"name" binding:"required"`
-	Info     *string             `json:"info"`
-	Interval *int                `json:"interval"`
-	Running  *bool               `json:"running"`
-	Camera   *bool               `json:"camera"`
-	Video    *model.VideoSetting `json:"video"`
+	Name      string  `json:"name" binding:"required"`
+	Info      *string `json:"info"`
+	Interval  *int    `json:"interval"`
+	Running   *bool   `json:"running"`
+	Completed *bool   `json:"completed"`
+	Camera    *bool   `json:"camera"`
 }
 
 type ProjectName struct {
@@ -73,31 +73,11 @@ type UpdateConfig struct {
 	Value v4l2.CtrlValue
 }
 
-type VideoSetting struct {
-	Enable             bool    `json:"enable"`
-	FPS                int     `json:"fps"`
-	MaxImage           int     `json:"maxImage"`
-	ShootingDays       float32 `json:"shootingDays"`
-	TotalVideoLength   float32 `json:"totalVideoLength"`
-	PreviewVideoLength float32 `json:"previewVideoLength"`
-}
-
-func GetVideoSettingFromProject(p *model.Project) VideoSetting {
-	return VideoSetting{
-		Enable:             p.Enable,
-		FPS:                int(p.VideoFPS),
-		MaxImage:           int(p.VideoMaxImage),
-		ShootingDays:       p.ShootingDays,
-		TotalVideoLength:   p.TotalVideoLength,
-		PreviewVideoLength: p.PreviewVideoLength,
-	}
-}
-
 type Project struct {
 	*model.Project
-	Video     VideoSetting `json:"video"`
-	Running   bool         `json:"running"`
-	DiskUsage string       `json:"diskUsage"`
+	Running   bool   `json:"running"`
+	State     string `json:"state"`
+	DiskUsage string `json:"diskUsage"`
 
 	StartedAt *time.Time `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt"`

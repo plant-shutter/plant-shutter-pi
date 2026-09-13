@@ -23,12 +23,11 @@ RUN --mount=type=bind,source=. \
   export CC=arm-linux-gnueabihf-gcc && \
   export CGO_CFLAGS=-I/opt/objectbox/include && \
   export CGO_LDFLAGS='-L/opt/objectbox/lib' && \
-#  goxx-go build -o /out/${OUTPUT} main.go
-#  goxx-go build -o /out/${OUTPUT} cmd/preview-test/main.go
-#  goxx-go build -o /out/${OUTPUT} cmd/camera/main.go
-  goxx-go build -o /out/${OUTPUT} cmd/test/main.go && \
+  goxx-go build -o /out/${OUTPUT} main.go && \
   mkdir -p /out/lib && \
   cp -L /opt/objectbox/lib/libobjectbox.so /out/lib/
+#  goxx-go build -o /out/${OUTPUT} cmd/preview-test/main.go
+#  goxx-go build -o /out/${OUTPUT} cmd/camera/main.go
 
 FROM scratch AS artifact
 COPY --from=build /out /

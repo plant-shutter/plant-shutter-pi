@@ -4,11 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/gorilla/websocket"
 	"io/fs"
-	"mime/multipart"
 	"net"
 	"net/http"
-	"net/textproto"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -16,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,7 +31,9 @@ import (
 	"plant-shutter-pi/pkg/types"
 
 	"plant-shutter-pi/pkg/camera"
+	"plant-shutter-pi/pkg/cameramode"
 	"plant-shutter-pi/pkg/ov"
+	"plant-shutter-pi/pkg/preview"
 	"plant-shutter-pi/pkg/schedule"
 	"plant-shutter-pi/pkg/storage"
 	"plant-shutter-pi/pkg/storage/consts"
@@ -53,8 +55,13 @@ var (
 	storageDir = flag.String("dir", "./plant-project", "")
 	staticsDir = flag.String("statics", "./statics", "")
 	devName    = flag.String("dev", "/dev/video0", "")
-	width      = flag.Int("width", 1920, "")
-	height     = flag.Int("height", 1080, "")
+	// A zero capture dimension means "use the largest JPEG size reported by
+	// the camera". This keeps the default still image at the sensor's maximum
+	// resolution while still allowing an explicit -width/-height override.
+	width         = flag.Int("width", 0, "JPEG capture width (0 uses camera maximum)")
+	height        = flag.Int("height", 0, "JPEG capture height (0 uses camera maximum)")
+	previewWidth  = flag.Int("preview-width", 1280, "H.264 preview width")
+	previewHeight = flag.Int("preview-height", 720, "H.264 preview height")
 
 	flashPin           = flag.String("flash-pin", "", "// \"11\": gpio number\n// \"GPIO11\": gpio name as defined per the bcm238x CPU driver\n// \"P1_23\": board header P1 position 23 name as defined by the rpi board driver")
 	flashTriggerOnHigh = flag.Bool("flash-trigger-on-high", true, "")
@@ -62,10 +69,15 @@ var (
 	logger       *zap.SugaredLogger
 	webdavServer *webdav.Webdav
 
-	stg    *storage.Storage
-	dev    *camera.Camera
-	sch    *schedule.Scheduler
-	frames <-chan []byte
+	stg               *storage.Storage
+	dev               *camera.Camera
+	sch               *schedule.Scheduler
+	frames            <-chan []byte
+	modeManager       *cameramode.Manager
+	previewController *preview.Controller
+	previewHandler    *preview.Handler
+	modeCoordinator   *camera.ModeCoordinator
+	trialShotMu       sync.Mutex
 )
 
 func init() {
@@ -96,7 +108,7 @@ func main() {
 	// init gin
 	r := gin.New()
 	//gin.SetMode(gin.ReleaseMode)
-	r.Use(gin.Logger())
+	r.Use(requestLogger())
 	r.Use(gin.Recovery())
 	r.Use(utils.Cors())
 	if err := registerStaticsDir(r, *staticsDir, "/"); err != nil {
@@ -109,7 +121,14 @@ func main() {
 	apiRouter := r.Group("/api")
 
 	deviceRouter := apiRouter.Group("/device")
-	deviceRouter.GET("/realtime/video", realtimeVideo)
+	deviceRouter.PUT("/mode", func(c *gin.Context) { previewController.ServeHTTP(c.Writer, c.Request) })
+	deviceRouter.GET("/preview", func(c *gin.Context) {
+		if previewHandler == nil {
+			c.Status(http.StatusServiceUnavailable)
+			return
+		}
+		previewHandler.ServeHTTP(c.Writer, c.Request)
+	})
 	deviceRouter.PUT("/webdav", ctlWebdav)
 	deviceRouter.GET("/config", listConfig)
 	deviceRouter.PUT("/config", updateConfig)
@@ -118,6 +137,8 @@ func main() {
 	deviceRouter.GET("/disk", getDiskUsage)
 	deviceRouter.GET("/memory", getMemUsage)
 	deviceRouter.GET("/camera", getCameraStatus)
+	deviceRouter.GET("/resolution", getResolution)
+	deviceRouter.POST("/trial-shot", trialShot)
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
@@ -134,14 +155,34 @@ func main() {
 	projectRouter.DELETE("/:name/image/:image", deleteProjectImage)
 	projectRouter.DELETE("/:name/image", deleteProjectImages)
 
-	//projectRouter.GET("/:name/video", listProjectVideos)
-	//projectRouter.GET("/:name/video/:video", getProjectVideo)
-	//projectRouter.DELETE("/:name/video/:video", deleteProjectVideo)
-	//projectRouter.DELETE("/:name/video", deleteProjectVideos)
-
 	// init camera
 	if err = initDevice(ctx, *devName, *width, *height, *flashPin, *flashTriggerOnHigh); err != nil {
 		logger.Error(fmt.Sprintf("camera %s is not ready, related functions will not be available, err: %s", *devName, err))
+	}
+	// Keep the H.264 preview resolution separate from the still-capture
+	// resolution configured by -width/-height.
+	modeManager = cameramode.NewManager(ctx, *devName, *devName, *previewWidth, *previewHeight, 0)
+	modeCoordinator = camera.NewModeCoordinator(ctx, dev, modeManager, consts.Width, consts.Height)
+	modeCoordinator.SetCaptureFrames(frames)
+	modeCoordinator.OnCapture = func(input <-chan []byte) {
+		frames = input
+		if sch != nil {
+			sch.SetInput(input)
+		}
+	}
+	previewController = &preview.Controller{Manager: modeCoordinator, Hub: preview.New(), IdleTimeout: 10 * time.Minute, ProjectRunning: func() bool { return sch != nil && sch.GetProject() != nil }}
+	previewHandler = &preview.Handler{Manager: modeCoordinator, Hub: previewController.Hub, Width: *previewWidth, Height: *previewHeight, ProjectRunning: previewController.ProjectRunning, Upgrader: websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}}
+	go previewController.Monitor(ctx.Done())
+	if sch != nil {
+		if last, resumeErr := stg.GetLastRunningProject(); resumeErr != nil {
+			logger.Warnw("could not inspect last running project", "error", resumeErr)
+		} else if last != nil && last.EndedAt.IsZero() {
+			logger.Infow("resuming shooting project after restart", "project", last.Name)
+			if dev != nil {
+				dev.UpdateSettings(last.CameraSettings)
+			}
+			sch.Begin(last)
+		}
 	}
 	defer dev.Stop()
 
@@ -162,13 +203,24 @@ func initDevice(ctx context.Context, devName string, w, h int, flashPin string, 
 		if err != nil {
 			return err
 		}
+		logger.Infof("capture resolution not specified; using camera maximum %dx%d", w, h)
 	}
 	consts.Width = w
 	consts.Height = h
 
 	frames, err = dev.Start(consts.Width, consts.Height)
 	if err != nil {
-		return err
+		// Some bcm2835-v4l2 firmware builds reject 1920x1080 JPEG while
+		// accepting the camera's stable 640x480 mode. Retry after Start has
+		// cleaned up the failed device handle so preview mode can still work.
+		if consts.Width != 640 || consts.Height != 480 {
+			logger.Warn("camera resolution unavailable, retrying at 640x480")
+			consts.Width, consts.Height = 640, 480
+			frames, err = dev.Start(consts.Width, consts.Height)
+		}
+		if err != nil {
+			return err
+		}
 	}
 	logger.Info("start device ", devName)
 	dev.ResetSettings()
@@ -190,7 +242,7 @@ func initDevice(ctx context.Context, devName string, w, h int, flashPin string, 
 }
 
 func listConfig(c *gin.Context) {
-	configs, err := dev.GetKnownCtrlConfigs()
+	configs, err := modeCoordinator.GetKnownCtrlConfigs()
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -201,6 +253,7 @@ func listConfig(c *gin.Context) {
 func updateConfig(c *gin.Context) {
 	if p := sch.GetProject(); p != nil {
 		c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running", p.Name)))
+		return
 	}
 	configs := make([]ov.UpdateConfig, 0)
 	err := c.Bind(&configs)
@@ -208,7 +261,7 @@ func updateConfig(c *gin.Context) {
 		return
 	}
 	for _, cfg := range configs {
-		if err = dev.SetControlValue(cfg.ID, cfg.Value); err != nil {
+		if err = modeCoordinator.SetControlValue(cfg.ID, cfg.Value); err != nil {
 			internalErr(c, err)
 			return
 		}
@@ -218,18 +271,18 @@ func updateConfig(c *gin.Context) {
 }
 
 func resetConfig(c *gin.Context) {
-	configs, err := dev.GetKnownCtrlConfigs()
+	configs, err := modeCoordinator.GetKnownCtrlConfigs()
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
 	for _, cfg := range configs {
-		if err = dev.SetControlValue(cfg.ID, cfg.Default); err != nil {
+		if err = modeCoordinator.SetControlValue(cfg.ID, cfg.Default); err != nil {
 			internalErr(c, err)
 			return
 		}
 	}
-	configs, err = dev.GetKnownCtrlConfigs()
+	configs, err = modeCoordinator.GetKnownCtrlConfigs()
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -303,6 +356,46 @@ func getCameraStatus(c *gin.Context) {
 	}))
 }
 
+func getResolution(c *gin.Context) {
+	c.JSON(http.StatusOK, jsend.Success(map[string]any{
+		"capture": map[string]int{"width": consts.Width, "height": consts.Height},
+		"preview": map[string]int{"width": *previewWidth, "height": *previewHeight},
+	}))
+}
+
+func trialShot(c *gin.Context) {
+	// Serialize this request with project transitions as well as other trial
+	// shots. The active-project check must cover the complete camera switch.
+	trialShotMu.Lock()
+	defer trialShotMu.Unlock()
+	if sch != nil && sch.GetProject() != nil {
+		c.JSON(http.StatusConflict, jsend.SimpleErr("pause the shooting project before taking a trial shot"))
+		return
+	}
+	if modeCoordinator == nil {
+		c.JSON(http.StatusServiceUnavailable, jsend.SimpleErr("camera is unavailable"))
+		return
+	}
+	// A trial shot switches the shared V4L2 device away from the live H.264
+	// stream. The lock above serializes the complete switch/capture/restore
+	// lifecycle so two browser requests cannot consume each other's JPEG frame.
+	if previewController != nil && previewController.Hub != nil {
+		// Release every H.264 websocket before reopening the V4L2 node for the
+		// full-resolution JPEG trial shot.
+		previewController.Hub.CloseAll()
+		time.Sleep(300 * time.Millisecond)
+	}
+	frame, err := modeCoordinator.CaptureOnce(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, jsend.SimpleErr(err.Error()))
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Header("Content-Type", "image/jpeg")
+	c.Writer.WriteHeader(http.StatusOK)
+	_, _ = c.Writer.Write(frame)
+}
+
 func getProject(c *gin.Context) {
 	p, err := stg.GetProject(c.Param("name"))
 	if err != nil {
@@ -360,10 +453,19 @@ func fillOvProject(p, runningP *model.Project) (*ov.Project, error) {
 	}
 	var o ov.Project
 	o.Project = p
-	o.Video = ov.GetVideoSettingFromProject(p)
 	o.DiskUsage = humanize.Bytes(uint64(usage))
 	if runningP != nil && runningP.Name == p.Name {
 		o.Running = true
+	}
+	switch {
+	case !p.EndedAt.IsZero():
+		o.State = "completed"
+	case o.Running:
+		o.State = "shooting"
+	case !p.StartedAt.IsZero():
+		o.State = "paused"
+	default:
+		o.State = "not_started"
 	}
 	if !p.StartedAt.IsZero() {
 		o.StartedAt = &p.StartedAt
@@ -384,10 +486,39 @@ func fillOvProject(p, runningP *model.Project) (*ov.Project, error) {
 	return &o, nil
 }
 
+// startProject switches the camera to capture mode and starts the scheduler.
+// Project creation uses the same path as the explicit "continue shooting"
+// action so a newly created project is immediately active.
+func startProject(pj *model.Project) error {
+	if previewController != nil {
+		if err := previewController.SetMode(cameramode.ModeCapture); err != nil {
+			return err
+		}
+	}
+	logger.Info("restore camera settings")
+	dev.UpdateSettings(pj.CameraSettings)
+	if pj.StartedAt.IsZero() {
+		pj.StartedAt = time.Now()
+	}
+	pj.EndedAt = time.Time{}
+	sch.Begin(pj)
+	if err := stg.SetLastRunningProject(pj.Name); err != nil {
+		sch.Stop()
+		return err
+	}
+	return nil
+}
+
 func createProject(c *gin.Context) {
 	var p ov.NewProject
 	err := c.Bind(&p)
 	if err != nil {
+		return
+	}
+	trialShotMu.Lock()
+	defer trialShotMu.Unlock()
+	if running := sch.GetProject(); running != nil {
+		c.JSON(http.StatusConflict, jsend.SimpleErr(fmt.Sprintf("project %s is running, please pause or end it first", running.Name)))
 		return
 	}
 	if p.Interval == nil {
@@ -412,22 +543,27 @@ func createProject(c *gin.Context) {
 		return
 	}
 
-	if p.Video == nil {
-		p.Video = &model.VideoSetting{
-			Enable:             true,
-			FPS:                30,
-			MaxImage:           450,
-			ShootingDays:       6.5,
-			TotalVideoLength:   2.5,
-			PreviewVideoLength: 15,
-		}
+	settings := p.Camera
+	if settings == nil {
+		settings = make(model.CameraSettings)
 	}
-	pj, err = stg.NewProject(p.Name, p.Info, *p.Interval, make(model.CameraSettings), *p.Video)
+	pj, err = stg.NewProject(p.Name, p.Info, *p.Interval, settings)
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-	dev.UpdateSettings(pj.CameraSettings)
+	if err = startProject(pj); err != nil {
+		_ = stg.DeleteProject(pj.Name)
+		_ = stg.ClearLastRunningProject()
+		internalErr(c, err)
+		return
+	}
+	if err = stg.UpdateProject(pj); err != nil {
+		sch.Stop()
+		_ = stg.ClearLastRunningProject()
+		internalErr(c, err)
+		return
+	}
 
 	c.JSON(http.StatusOK, jsend.Success(pj))
 	return
@@ -439,6 +575,8 @@ func updateProject(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	trialShotMu.Lock()
+	defer trialShotMu.Unlock()
 	logger.Info(p)
 
 	pj, err := stg.GetProject(p.Name)
@@ -462,19 +600,12 @@ func updateProject(c *gin.Context) {
 		pj.Info = *p.Info
 	}
 
-	if p.Camera != nil || p.Video != nil {
+	if p.Camera != nil {
 		runningP := sch.GetProject()
 		if (runningP != nil && runningP.Name == pj.Name) || !pj.Cleaned() {
 			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s has been run, please reset first", pj.Name)))
 			return
 		}
-	}
-	if p.Video != nil {
-		pj.VideoFPS = p.Video.FPS
-		pj.VideoMaxImage = p.Video.MaxImage
-		pj.ShootingDays = p.Video.ShootingDays
-		pj.TotalVideoLength = p.Video.TotalVideoLength
-		pj.PreviewVideoLength = p.Video.PreviewVideoLength
 	}
 	if p.Camera != nil && *p.Camera {
 		setting, err := dev.GetKnownCtrlSettings()
@@ -486,17 +617,17 @@ func updateProject(c *gin.Context) {
 	}
 
 	if p.Running != nil {
+		if *p.Running && !pj.EndedAt.IsZero() {
+			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s has ended; reset it before restarting", pj.Name)))
+			return
+		}
 		runningP := sch.GetProject()
 		if runningP != nil && runningP.Name != p.Name {
 			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running, please stop first", runningP.Name)))
 			return
 		}
 		if *p.Running {
-			logger.Info("restore camera settings")
-			dev.UpdateSettings(pj.CameraSettings)
-			sch.Begin(pj)
-			err = stg.SetLastRunningProject(pj.Name)
-			if err != nil {
+			if err = startProject(pj); err != nil {
 				internalErr(c, err)
 				return
 			}
@@ -508,6 +639,21 @@ func updateProject(c *gin.Context) {
 				return
 			}
 		}
+	}
+	if p.Completed != nil && *p.Completed {
+		runningP := sch.GetProject()
+		if runningP != nil && runningP.Name != pj.Name {
+			c.JSON(http.StatusBadRequest, jsend.SimpleErr(fmt.Sprintf("project %s is running, please pause it first", runningP.Name)))
+			return
+		}
+		if runningP != nil {
+			sch.Stop()
+		}
+		if err = stg.ClearLastRunningProject(); err != nil {
+			internalErr(c, err)
+			return
+		}
+		pj.EndedAt = time.Now()
 	}
 
 	err = stg.UpdateProject(pj)
@@ -538,14 +684,7 @@ func resetProject(c *gin.Context) {
 		return
 	}
 
-	p, err = stg.NewProject(p.Name, p.Info, p.Interval, p.CameraSettings, model.VideoSetting{
-		Enable:             p.Enable,
-		FPS:                p.VideoFPS,
-		MaxImage:           p.VideoMaxImage,
-		ShootingDays:       p.ShootingDays,
-		TotalVideoLength:   p.TotalVideoLength,
-		PreviewVideoLength: p.PreviewVideoLength,
-	})
+	p, err = stg.NewProject(p.Name, p.Info, p.Interval, p.CameraSettings)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -588,12 +727,17 @@ func projectLatestImage(c *gin.Context) {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
 		return
 	}
+	if p.ImageCount == 0 || p.LatestImageName == "" {
+		c.JSON(http.StatusNotFound, jsend.SimpleErr("project has no captured images"))
+		return
+	}
 	image, err := p.GetLatestImage()
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
 	c.Header("Content-Type", "image/jpeg")
+	c.Header("Cache-Control", "no-store")
 	c.Writer.Write(image)
 }
 
@@ -691,157 +835,6 @@ func listProjectImages(c *gin.Context) {
 	}))
 }
 
-//
-//func getProjectVideo(c *gin.Context) {
-//	p, err := stg.GetProject(c.Param("name"))
-//	if err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//	if p == nil {
-//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-//		return
-//	}
-//	videoName := c.Param("video")
-//	videoPath := p.GetVideoPath(videoName)
-//	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", videoName))
-//	c.Writer.Header().Set("Content-Type", "application/octet-stream")
-//	c.File(videoPath)
-//}
-//
-//func deleteProjectVideo(c *gin.Context) {
-//	p, err := stg.GetProject(c.Param("name"))
-//	if err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//	if p == nil {
-//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-//		return
-//	}
-//	videoName := c.Param("video")
-//	videoPath := p.GetVideoPath(videoName)
-//	if err = os.Remove(videoPath); err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//
-//	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("remove video %s success", videoName)))
-//}
-//
-//func deleteProjectVideos(c *gin.Context) {
-//	p, err := stg.GetProject(c.Param("name"))
-//	if err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//	if p == nil {
-//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-//		return
-//	}
-//
-//	if err = p.ClearVideos(); err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//
-//	c.JSON(http.StatusOK, jsend.Success("remove videos success"))
-//}
-//
-//func listProjectVideos(c *gin.Context) {
-//	p, err := stg.GetProject(c.Param("name"))
-//	if err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//	if p == nil {
-//		c.JSON(http.StatusNotFound, jsend.SimpleErr("project not found"))
-//		return
-//	}
-//	list := make([]types.File, 0)
-//	var totalSize int64
-//	err = p.ListVideos(func(info fs.FileInfo) error {
-//		list = append(list, infoToFile(info))
-//		totalSize += info.Size()
-//
-//		return nil
-//	})
-//	if err != nil {
-//		internalErr(c, err)
-//		return
-//	}
-//	page, _ := strconv.Atoi(c.Query("page"))
-//	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-//	subVideos, prev, next := getPage(list, page, pageSize)
-//	c.JSON(http.StatusOK, jsend.Success(map[string]any{
-//		"page":      page,
-//		"pageSize":  pageSize,
-//		"prevPage":  prev,
-//		"nextPage":  next,
-//		"total":     len(list),
-//		"video":     subVideos,
-//		"totalSize": humanize.Bytes(uint64(totalSize)),
-//	}))
-//}
-
-func realtimeVideo(c *gin.Context) {
-	mimeWriter := multipart.NewWriter(c.Writer)
-	c.Header("Content-Type", fmt.Sprintf("multipart/x-mixed-replace; boundary=%s", mimeWriter.Boundary()))
-	partHeader := make(textproto.MIMEHeader)
-	partHeader.Add("Content-Type", "image/jpeg")
-
-	frame, ok := camera.DrainLatest(c, nil, frames)
-	if !ok {
-		logger.Warn("realtime video frames close")
-		return
-	}
-	for {
-		select {
-		case frame, ok = <-frames:
-			//frame, ok := camera.DrainLatest(c, frame, frames)
-			if !ok {
-				logger.Warn("realtime video frames close")
-				return
-			}
-			if len(frame) == 0 {
-				logger.Error("empty frame received")
-				continue
-			}
-			err := writeMimePart(c, mimeWriter, partHeader, frame)
-			if err != nil {
-				logger.Warnf("failed to write image: %s", err)
-				return
-			}
-		case <-time.After(5 * time.Second):
-			logger.Errorf("timeout reading frame")
-			data, err := os.ReadFile("camera-disconnect.png")
-			if err != nil {
-				logger.Warnf("failed to read camera disconnect.png: %s", err)
-				continue
-			}
-			err = writeMimePart(c, mimeWriter, partHeader, data)
-			if err != nil {
-				logger.Warnf("failed to write image: %s", err)
-				return
-			}
-		case <-c.Done():
-			logger.Warn("realtime video context done in for")
-		}
-	}
-}
-
-func writeMimePart(c *gin.Context, mimeWriter *multipart.Writer, partHeader textproto.MIMEHeader, frame []byte) error {
-	partWriter, err := mimeWriter.CreatePart(partHeader)
-	if err != nil {
-		return fmt.Errorf("create part failed: %s", err)
-	}
-
-	if _, err = partWriter.Write(frame); err != nil {
-		return fmt.Errorf("write part failed: %s", err)
-	}
-	return http.NewResponseController(c.Writer).Flush()
-}
-
 func ctlWebdav(c *gin.Context) {
 	op := c.Query("op")
 	switch op {
@@ -877,8 +870,34 @@ func registerStaticsDir(group gin.IRoutes, dir, relativeGroup string) error {
 }
 
 func internalErr(c *gin.Context, err error) {
-	logger.Debug(err)
+	if err == nil {
+		logger.Errorw("request failed with nil error", "method", c.Request.Method, "path", c.Request.URL.Path)
+		err = fmt.Errorf("internal server error")
+	} else {
+		logger.Errorw("request failed", "error", err, "method", c.Request.Method, "path", c.Request.URL.Path, "query", c.Request.URL.RawQuery)
+	}
 	c.JSON(http.StatusInternalServerError, jsend.SimpleErr(err.Error()))
+}
+
+func requestLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		started := time.Now()
+		c.Next()
+		fields := []any{"method", c.Request.Method, "path", c.Request.URL.Path, "status", c.Writer.Status(), "latency", time.Since(started), "client", c.ClientIP()}
+		if c.Request.URL.RawQuery != "" {
+			fields = append(fields, "query", c.Request.URL.RawQuery)
+		}
+		if len(c.Errors) > 0 {
+			fields = append(fields, "errors", c.Errors.Errors())
+		}
+		if c.Writer.Status() >= 500 {
+			logger.Errorw("http request completed", fields...)
+		} else if c.Writer.Status() >= 400 {
+			logger.Warnw("http request completed", fields...)
+		} else {
+			logger.Infow("http request completed", fields...)
+		}
+	}
 }
 
 func getPage(strs []types.File, page, pageSize int) ([]types.File, int, int) {

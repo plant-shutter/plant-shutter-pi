@@ -9,8 +9,7 @@ require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/goccy/go-json v0.10.5
 	github.com/google/flatbuffers v25.2.10+incompatible
-	github.com/icza/mjpeg v0.0.0-20230330134156-38318e5ab8f4
-	github.com/looplab/fsm v1.0.3
+	github.com/gorilla/websocket v1.5.3
 	github.com/objectbox/objectbox-go v1.9.0
 	github.com/pion/webrtc/v4 v4.1.4
 	github.com/shirou/gopsutil/v3 v3.24.5

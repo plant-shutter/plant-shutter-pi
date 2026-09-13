@@ -30,3 +30,4 @@ objectbox/
 AGENTS.md
 .agents/
 skills-lock.json
+node_modules/

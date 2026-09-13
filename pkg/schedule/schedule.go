@@ -68,6 +68,13 @@ func (s *Scheduler) GetProject() *model.Project {
 	return s.p
 }
 
+// SetInput replaces the capture stream after a camera mode transition.
+func (s *Scheduler) SetInput(input <-chan []byte) {
+	s.lock.Lock()
+	s.input = input
+	s.lock.Unlock()
+}
+
 func (s *Scheduler) startDeal(ctx context.Context) {
 	go func(s *Scheduler) {
 		for {

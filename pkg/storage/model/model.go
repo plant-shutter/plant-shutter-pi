@@ -12,20 +12,11 @@ type ProjectEntity struct {
 	Name     string `objectbox:"unique" json:"name,omitempty"`
 	Info     string `json:"info,omitempty"`
 	Interval int32  `json:"interval,omitempty"`
-	// Video settings
-	Enable             bool    `json:"enable,omitempty"`
-	VideoFPS           int32   `json:"videoFPS,omitempty"`
-	VideoMaxImage      int32   `json:"videoMaxImage,omitempty"`
-	ShootingDays       float32 `json:"shootingDays,omitempty"`
-	TotalVideoLength   float32 `json:"totalVideoLength,omitempty"`
-	PreviewVideoLength float32 `json:"previewVideoLength,omitempty"`
-	// Video info
-	VideoFrameCount int `json:"VideoFrameCount,omitempty"`
-	// Camera settings
-	CameraSettings CameraSettings `objectbox:"type:[]byte converter:CameraSettingsConv" json:"camera,omitempty"`
-	// images info
+	// Capture metadata only; frames are stored as individual JPEG files.
 	ImageCount      int    `json:"imageCount,omitempty"`
 	LatestImageName string `json:"latestImageName,omitempty"`
+	// Camera settings
+	CameraSettings CameraSettings `objectbox:"type:[]byte converter:CameraSettingsConv" json:"camera,omitempty"`
 
 	StartedAt time.Time `objectbox:"date" json:"startedAt"`
 	EndedAt   time.Time `objectbox:"date" json:"endedAt"`

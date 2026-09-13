@@ -15,10 +15,9 @@ func TestStorage_ProjectLifecycle(t *testing.T) {
 	}
 
 	cam := model.CameraSettings{}
-	video := model.VideoSetting{Enable: true, FPS: 24, MaxImage: 100}
 
 	// create project
-	p, err := s.NewProject("p1", "desc", 1000, cam, video)
+	p, err := s.NewProject("p1", "desc", 1000, cam)
 	if err != nil {
 		t.Fatalf("NewProject: %v", err)
 	}
@@ -27,7 +26,7 @@ func TestStorage_ProjectLifecycle(t *testing.T) {
 	}
 
 	// duplicate should fail
-	if _, err := s.NewProject("p1", "desc2", 1000, cam, video); err == nil {
+	if _, err := s.NewProject("p1", "desc2", 1000, cam); err == nil {
 		t.Fatalf("expected duplicate project error")
 	}
 

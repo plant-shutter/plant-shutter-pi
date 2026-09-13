@@ -3,7 +3,6 @@ package utils
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
@@ -15,7 +14,7 @@ func ListenAndServe(ctx context.Context, h http.Handler, port int) {
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+			GetLogger().Errorw("http server listen failed", "address", srv.Addr, "error", err)
 		}
 	}()
 
@@ -24,8 +23,8 @@ func ListenAndServe(ctx context.Context, h http.Handler, port int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	err := srv.Shutdown(ctx)
 	if err != nil {
-		log.Println(err)
+		GetLogger().Errorw("http server shutdown failed", "error", err)
 	}
-	log.Println("server shutdown")
+	GetLogger().Info("server shutdown")
 	cancel()
 }

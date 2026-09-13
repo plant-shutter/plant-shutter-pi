@@ -2,7 +2,7 @@
 
 ![icon](asset/icon-192x192.png)
 
-一个简单易用的延时摄影（TimeLapse）程序。
+一个使用原生 H.264 预览和 JPEG 拍照的树莓派相机程序。
 
 > 成片B站视频
 > https://www.bilibili.com/video/BV1wZ42127U3/?spm_id_from=333.999.0.0
@@ -15,7 +15,7 @@
 * **实时预览**调参
 * 支持使用**WebDAV**共享拍摄的图片
 * 使用`Video for Linux 2` (**v4l2**) API
-* 支持生成**预览视频**
+* 预览通过 WebSocket 传输原生 H.264
 * **All-In-One**，开箱即用
 
 ## QuickStart
@@ -29,6 +29,18 @@ chmod +x plant-shutter
 
 ## Systemd
 
+The ARM64 package includes a `run.sh` launcher. To install it as a system
+service and start it immediately, run this on the Raspberry Pi from the
+extracted package directory:
+
+```sh
+sudo ./run.sh install
+```
+
+This creates `plant-shutter.service`, enables it for future boots, and writes
+the service output to `plant-shutter.log`. To run it only for the current
+session, use `./run.sh` instead.
+
 
 
 ## Storage
@@ -41,9 +53,6 @@ chmod +x plant-shutter
     │   │   ├── <image>.jpg
     │   │   ├── ...
     │   │   └── info.json
-    │   └── videos/
-    │       ├── <name>.avi
-    │       └── ...
     ├── ...
     └── info.json
 ```
@@ -85,7 +94,7 @@ modules-load=dwc2,g_ether
 ## Todo
 
 - [x] 图片存储结构
-- [x] 堆叠视频
+- [x] 图片拍摄与延时摄影
 - [x] 相机管理
 - [x] 相机参数调节
 - [x] 任务调度与状态管理
@@ -119,7 +128,6 @@ sudo raspi-config
 > https://github.com/disintegration/imaging
 > https://gist.github.com/logrusorgru/570d64fd6a051e0441014387b89286ca
 > https://github.com/nfnt/resize
-> https://github.com/icza/mjpeg
 > https://github.com/131/h264-live-player
 
 ### pi camera

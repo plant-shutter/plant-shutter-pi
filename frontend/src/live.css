@@ -1,0 +1,1 @@
+.live-canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;z-index:2}.live-canvas.visible{display:block}.live-canvas.visible~.plant{display:none}

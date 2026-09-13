@@ -24,24 +24,17 @@ var ProjectEntityBinding = projectEntity_EntityInfo{
 
 // ProjectEntity_ contains type-based Property helpers to facilitate some common operations such as Queries.
 var ProjectEntity_ = struct {
-	Id                 *objectbox.PropertyUint64
-	Name               *objectbox.PropertyString
-	Info               *objectbox.PropertyString
-	Interval           *objectbox.PropertyInt32
-	CreatedAt          *objectbox.PropertyInt64
-	ShootingDays       *objectbox.PropertyFloat32
-	TotalVideoLength   *objectbox.PropertyFloat32
-	PreviewVideoLength *objectbox.PropertyFloat32
-	CameraSettings     *objectbox.PropertyByteVector
-	VideoFPS           *objectbox.PropertyInt32
-	VideoMaxImage      *objectbox.PropertyInt32
-	VideoFrameCount    *objectbox.PropertyInt
-	ImageCount         *objectbox.PropertyInt
-	LatestImageName    *objectbox.PropertyString
-	StartedAt          *objectbox.PropertyInt64
-	EndedAt            *objectbox.PropertyInt64
-	UpdateAt           *objectbox.PropertyInt64
-	Enable             *objectbox.PropertyBool
+	Id              *objectbox.PropertyUint64
+	Name            *objectbox.PropertyString
+	Info            *objectbox.PropertyString
+	Interval        *objectbox.PropertyInt32
+	CreatedAt       *objectbox.PropertyInt64
+	CameraSettings  *objectbox.PropertyByteVector
+	ImageCount      *objectbox.PropertyInt
+	LatestImageName *objectbox.PropertyString
+	StartedAt       *objectbox.PropertyInt64
+	EndedAt         *objectbox.PropertyInt64
+	UpdateAt        *objectbox.PropertyInt64
 }{
 	Id: &objectbox.PropertyUint64{
 		BaseProperty: &objectbox.BaseProperty{
@@ -73,45 +66,9 @@ var ProjectEntity_ = struct {
 			Entity: &ProjectEntityBinding.Entity,
 		},
 	},
-	ShootingDays: &objectbox.PropertyFloat32{
-		BaseProperty: &objectbox.BaseProperty{
-			Id:     10,
-			Entity: &ProjectEntityBinding.Entity,
-		},
-	},
-	TotalVideoLength: &objectbox.PropertyFloat32{
-		BaseProperty: &objectbox.BaseProperty{
-			Id:     11,
-			Entity: &ProjectEntityBinding.Entity,
-		},
-	},
-	PreviewVideoLength: &objectbox.PropertyFloat32{
-		BaseProperty: &objectbox.BaseProperty{
-			Id:     12,
-			Entity: &ProjectEntityBinding.Entity,
-		},
-	},
 	CameraSettings: &objectbox.PropertyByteVector{
 		BaseProperty: &objectbox.BaseProperty{
 			Id:     13,
-			Entity: &ProjectEntityBinding.Entity,
-		},
-	},
-	VideoFPS: &objectbox.PropertyInt32{
-		BaseProperty: &objectbox.BaseProperty{
-			Id:     14,
-			Entity: &ProjectEntityBinding.Entity,
-		},
-	},
-	VideoMaxImage: &objectbox.PropertyInt32{
-		BaseProperty: &objectbox.BaseProperty{
-			Id:     15,
-			Entity: &ProjectEntityBinding.Entity,
-		},
-	},
-	VideoFrameCount: &objectbox.PropertyInt{
-		BaseProperty: &objectbox.BaseProperty{
-			Id:     16,
 			Entity: &ProjectEntityBinding.Entity,
 		},
 	},
@@ -145,12 +102,6 @@ var ProjectEntity_ = struct {
 			Entity: &ProjectEntityBinding.Entity,
 		},
 	},
-	Enable: &objectbox.PropertyBool{
-		BaseProperty: &objectbox.BaseProperty{
-			Id:     23,
-			Entity: &ProjectEntityBinding.Entity,
-		},
-	},
 }
 
 // GeneratorVersion is called by ObjectBox to verify the compatibility of the generator used to generate this code
@@ -169,19 +120,12 @@ func (projectEntity_EntityInfo) AddToModel(model *objectbox.Model) {
 	model.Property("Info", 9, 3, 547217713188363363)
 	model.Property("Interval", 5, 4, 987833402084319865)
 	model.Property("CreatedAt", 10, 7, 2752261256299973186)
-	model.Property("ShootingDays", 7, 10, 4249619312989082471)
-	model.Property("TotalVideoLength", 7, 11, 535436702901036224)
-	model.Property("PreviewVideoLength", 7, 12, 4757757768936413671)
 	model.Property("CameraSettings", 23, 13, 6091359989813993846)
-	model.Property("VideoFPS", 5, 14, 5766839287658650703)
-	model.Property("VideoMaxImage", 5, 15, 8260402102223984509)
-	model.Property("VideoFrameCount", 6, 16, 4959251309210067918)
 	model.Property("ImageCount", 6, 18, 8524371154695624402)
 	model.Property("LatestImageName", 9, 19, 2627974856941245340)
 	model.Property("StartedAt", 10, 20, 2719703509981112629)
 	model.Property("EndedAt", 10, 21, 7473525894695439415)
 	model.Property("UpdateAt", 10, 22, 4818775003864243292)
-	model.Property("Enable", 1, 23, 6811454939483702910)
 	model.EntityLastPropertyId(23, 6811454939483702910)
 }
 
@@ -260,16 +204,9 @@ func (projectEntity_EntityInfo) Flatten(object interface{}, fbb *flatbuffers.Bui
 	fbutils.SetUOffsetTSlot(fbb, 1, offsetName)
 	fbutils.SetUOffsetTSlot(fbb, 2, offsetInfo)
 	fbutils.SetInt32Slot(fbb, 3, obj.Interval)
-	fbutils.SetBoolSlot(fbb, 22, obj.Enable)
-	fbutils.SetInt32Slot(fbb, 13, obj.VideoFPS)
-	fbutils.SetInt32Slot(fbb, 14, obj.VideoMaxImage)
-	fbutils.SetFloat32Slot(fbb, 9, obj.ShootingDays)
-	fbutils.SetFloat32Slot(fbb, 10, obj.TotalVideoLength)
-	fbutils.SetFloat32Slot(fbb, 11, obj.PreviewVideoLength)
-	fbutils.SetInt64Slot(fbb, 15, int64(obj.VideoFrameCount))
-	fbutils.SetUOffsetTSlot(fbb, 12, offsetCameraSettings)
 	fbutils.SetInt64Slot(fbb, 17, int64(obj.ImageCount))
 	fbutils.SetUOffsetTSlot(fbb, 18, offsetLatestImageName)
+	fbutils.SetUOffsetTSlot(fbb, 12, offsetCameraSettings)
 	fbutils.SetInt64Slot(fbb, 19, propStartedAt)
 	fbutils.SetInt64Slot(fbb, 20, propEndedAt)
 	fbutils.SetInt64Slot(fbb, 21, propUpdateAt)
@@ -316,24 +253,17 @@ func (projectEntity_EntityInfo) Load(ob *objectbox.ObjectBox, bytes []byte) (int
 	}
 
 	return &ProjectEntity{
-		Id:                 propId,
-		Name:               fbutils.GetStringSlot(table, 6),
-		Info:               fbutils.GetStringSlot(table, 8),
-		Interval:           fbutils.GetInt32Slot(table, 10),
-		Enable:             fbutils.GetBoolSlot(table, 48),
-		VideoFPS:           fbutils.GetInt32Slot(table, 30),
-		VideoMaxImage:      fbutils.GetInt32Slot(table, 32),
-		ShootingDays:       fbutils.GetFloat32Slot(table, 22),
-		TotalVideoLength:   fbutils.GetFloat32Slot(table, 24),
-		PreviewVideoLength: fbutils.GetFloat32Slot(table, 26),
-		VideoFrameCount:    fbutils.GetIntSlot(table, 34),
-		CameraSettings:     propCameraSettings,
-		ImageCount:         fbutils.GetIntSlot(table, 38),
-		LatestImageName:    fbutils.GetStringSlot(table, 40),
-		StartedAt:          propStartedAt,
-		EndedAt:            propEndedAt,
-		UpdateAt:           propUpdateAt,
-		CreatedAt:          propCreatedAt,
+		Id:              propId,
+		Name:            fbutils.GetStringSlot(table, 6),
+		Info:            fbutils.GetStringSlot(table, 8),
+		Interval:        fbutils.GetInt32Slot(table, 10),
+		ImageCount:      fbutils.GetIntSlot(table, 38),
+		LatestImageName: fbutils.GetStringSlot(table, 40),
+		CameraSettings:  propCameraSettings,
+		StartedAt:       propStartedAt,
+		EndedAt:         propEndedAt,
+		UpdateAt:        propUpdateAt,
+		CreatedAt:       propCreatedAt,
 	}, nil
 }
 

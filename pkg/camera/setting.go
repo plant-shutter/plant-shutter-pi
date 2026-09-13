@@ -45,6 +45,9 @@ var (
 	}
 )
 
+// KnownControlIDs returns the controls exposed by the camera tuning API.
+func KnownControlIDs() []v4l2.CtrlID { return append([]v4l2.CtrlID(nil), knownCtrlID...) }
+
 func init() {
 	logger = utils.GetLogger()
 }

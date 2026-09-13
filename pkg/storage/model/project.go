@@ -18,38 +18,18 @@ type Project struct {
 	rootDir string
 }
 
-type VideoInfo struct {
-	MaxNumber int `json:"maxNumber"`
-
-	UpdateAt *time.Time `json:"updateAt"`
-}
-
 func (p *Project) SetRootDir(dir string) {
 	p.rootDir = path.Join(dir, p.Name)
 }
 
-type VideoSetting struct {
-	Enable             bool    `json:"enable"`
-	FPS                int32   `json:"fps"`
-	MaxImage           int32   `json:"maxImage"`
-	ShootingDays       float32 `json:"shootingDays"`
-	TotalVideoLength   float32 `json:"totalVideoLength"`
-	PreviewVideoLength float32 `json:"previewVideoLength"`
-}
-
-func New(name, info string, interval int32, rootDir string, camera CameraSettings, video VideoSetting) (*Project, error) {
+func New(name, info string, interval int32, rootDir string, camera CameraSettings) (*Project, error) {
 	p := &Project{
 		ProjectEntity: ProjectEntity{
-			Name:               name,
-			Info:               info,
-			Interval:           interval,
-			VideoFPS:           video.FPS,
-			VideoMaxImage:      video.MaxImage,
-			ShootingDays:       video.ShootingDays,
-			TotalVideoLength:   video.TotalVideoLength,
-			PreviewVideoLength: video.PreviewVideoLength,
-			CameraSettings:     camera,
-			CreatedAt:          time.Now(),
+			Name:           name,
+			Info:           info,
+			Interval:       interval,
+			CameraSettings: camera,
+			CreatedAt:      time.Now(),
 		},
 	}
 	p.SetRootDir(rootDir)

@@ -32,7 +32,7 @@ func NewLogger() *zap.SugaredLogger {
 		ErrorOutputPaths: []string{"stderr"},
 	}
 
-	l, err := cfg.Build()
+	l, err := cfg.Build(zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
 	if err != nil {
 		panic(err)
 	}

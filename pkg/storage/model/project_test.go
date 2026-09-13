@@ -11,15 +11,7 @@ func newTestProject(t *testing.T, name string) *Project {
 	t.Helper()
 	root := t.TempDir()
 	cam := CameraSettings{}
-	video := VideoSetting{
-		Enable:             true,
-		FPS:                24,
-		MaxImage:           1000,
-		ShootingDays:       1.5,
-		TotalVideoLength:   10.0,
-		PreviewVideoLength: 3.0,
-	}
-	p, err := New(name, "info", 5000, root, cam, video)
+	p, err := New(name, "info", 5000, root, cam)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
