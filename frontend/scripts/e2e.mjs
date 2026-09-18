@@ -63,6 +63,10 @@ try {
   await page.getByLabel('项目名称').fill(projectName)
   await page.getByRole('button', { name: /继续/ }).click()
   await expectVisible('text=画面参数', 'camera tuning step')
+  // A device may retain a manual exposure above the H.264 preview limit.
+  // The tuning screen explains that state before allowing a trial shot.
+  const exposureWarning = page.getByRole('alertdialog')
+  if (await exposureWarning.isVisible().catch(() => false)) await page.getByRole('button', { name: '知道了' }).click()
   await page.getByRole('button', { name: '试拍' }).click()
   await expectVisible('text=试拍原图', 'trial shot result')
   await page.getByRole('button', { name: '返回实时画面' }).click()
@@ -83,7 +87,8 @@ try {
 
   await page.getByRole('button', { name: new RegExp(projectName) }).click()
   await expectVisible('text=打开照片库', 'project detail actions')
-  await page.getByRole('button', { name: /继续拍摄/ }).click()
+  const continueShooting = page.getByRole('button', { name: /继续拍摄/ })
+  if (await continueShooting.isVisible().catch(() => false)) await continueShooting.click()
   await expectVisible('text=拍摄中', 'running project state')
   await page.getByRole('button', { name: /暂停拍摄/ }).click()
   await expectVisible('text=已暂停', 'paused project state')

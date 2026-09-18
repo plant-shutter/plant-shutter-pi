@@ -62,6 +62,26 @@ const CONTROL_ORDER = [
   CONTROL.autoIso, CONTROL.iso,
 ]
 
+// V4L2 exposes exposure_time_absolute in units of 100 microseconds.
+// The H.264 preview path is not reliable once exposure exceeds 100 ms.
+const EXPOSURE_PREVIEW_LIMIT = 1000
+const EXPOSURE_WARNING_STORAGE_KEY = 'plant-shutter.preview-exposure-warning.v1'
+
+function formatExposure(value: number) {
+  const milliseconds = value / 10
+  return `${Number.isInteger(milliseconds) ? milliseconds.toFixed(0) : milliseconds.toFixed(1)}ms`
+}
+
+function exposureWarningWasSeen() {
+  if (typeof window === 'undefined') return false
+  try { return window.localStorage.getItem(EXPOSURE_WARNING_STORAGE_KEY) === '1' } catch { return false }
+}
+
+function rememberExposureWarning() {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(EXPOSURE_WARNING_STORAGE_KEY, '1') } catch { /* Private browsing may reject storage. */ }
+}
+
 function sortControls(configs: Config[]) {
   const order = new Map<number, number>(CONTROL_ORDER.map((id, index) => [id, index]))
   return [...configs].sort((a, b) => (order.get(a.ID) ?? CONTROL_ORDER.length) - (order.get(b.ID) ?? CONTROL_ORDER.length))
@@ -90,16 +110,6 @@ function isAdvancedControl(config: Config) {
 
 function nearestQualityPreset(value: number) {
   return QUALITY_PRESETS.reduce((nearest, preset) => Math.abs(preset.value - value) < Math.abs(nearest.value - value) ? preset : nearest)
-}
-
-function formatVideoDuration(seconds: number) {
-  if (seconds < 60) return `${seconds.toFixed(1)} 秒`
-  const total = Math.round(seconds)
-  const minutes = Math.floor(total / 60)
-  const remainingSeconds = total % 60
-  if (minutes < 60) return `${minutes} 分 ${remainingSeconds} 秒`
-  const hours = Math.floor(minutes / 60)
-  return `${hours} 小时 ${minutes % 60} 分 ${remainingSeconds} 秒`
 }
 
 function formatInterval(interval: number) {
@@ -302,7 +312,25 @@ function Projects({ projects, selected, busy, images, onSelect, onCreate, onRun,
 
 function Gallery({ project, images, onDelete, onClear }: { project: Project | null; images: ImagePage | null; onDelete: (image: ImageFile) => void; onClear: () => void }) { if (!project) return <div className="card empty">请先从拍摄项目中选择一个项目</div>; return <section className="card gallery"><div className="gallery-head"><div><p>PHOTO LIBRARY</p><h2>{project.name}</h2><small>{images?.total || 0} 张照片 · {images?.totalSize || '—'}</small></div><button className="danger" onClick={onClear}>清空图库</button></div>{images?.images?.length ? <div className="gallery-grid">{images.images.map(image => <figure key={image.name}><img src={`/api/project/${encodeURIComponent(project.name)}/image/${encodeURIComponent(image.name)}`} alt={image.name} loading="lazy" /><figcaption><span>{new Date(image.modTime).toLocaleString('zh-CN')}</span><button aria-label={`删除 ${image.name}`} onClick={() => onDelete(image)}>删除</button></figcaption></figure>)}</div> : <div className="empty">◌<p>还没有照片</p><small>开始拍摄后，照片会出现在这里</small></div>}</section> }
 
-function CameraControl({ config, draft, setDraft, apply }: { config: Config; draft: Config[]; setDraft: ConfigSetter; apply: (config: Config, value: number) => void }) {
+function CameraControl({ config, draft, setDraft, apply, previewing = false, onPreviewLimit }: { config: Config; draft: Config[]; setDraft: ConfigSetter; apply: (config: Config, value: number) => void; previewing?: boolean; onPreviewLimit?: () => void }) {
+  const valueRef = useRef(config.value)
+  const committedValueRef = useRef(config.value)
+  const dirtyRef = useRef(false)
+  const holdTimeoutRef = useRef<number | null>(null)
+  const holdIntervalRef = useRef<number | null>(null)
+  useEffect(() => {
+    // A range change updates the draft before the pointer is released. Keep
+    // the edited value until commitValue sends it to the backend.
+    if (!dirtyRef.current) {
+      valueRef.current = config.value
+      committedValueRef.current = config.value
+    }
+  }, [config.value])
+  useEffect(() => () => {
+    if (holdTimeoutRef.current !== null) window.clearTimeout(holdTimeoutRef.current)
+    if (holdIntervalRef.current !== null) window.clearInterval(holdIntervalRef.current)
+  }, [])
+
   const dependency = dependencyFor(config)
   const parent = dependency ? draft.find(item => item.ID === dependency) : undefined
   if (parent && isAutoEnabled(parent)) return null
@@ -311,7 +339,54 @@ function CameraControl({ config, draft, setDraft, apply }: { config: Config; dra
   const inputId = `camera-control-${config.ID}`
   const isAutomatic = config.ID === CONTROL.autoExposure || config.ID === CONTROL.autoWhiteBalance || config.ID === CONTROL.autoIso
   const isCompression = config.ID === 10291459
+  const isExposure = config.ID === CONTROL.exposureTime
   const quality = isCompression ? nearestQualityPreset(config.value) : undefined
+
+  const clearHold = () => {
+    if (holdTimeoutRef.current !== null) { window.clearTimeout(holdTimeoutRef.current); holdTimeoutRef.current = null }
+    if (holdIntervalRef.current !== null) { window.clearInterval(holdIntervalRef.current); holdIntervalRef.current = null }
+  }
+  const updateValue = (value: number) => {
+    const next = Math.min(config.maximum, Math.max(config.minimum, value))
+    valueRef.current = next
+    dirtyRef.current = true
+    setDraft(current => current.map(item => item.ID === config.ID ? { ...item, value: next } : item))
+    if (previewing && isExposure && next > EXPOSURE_PREVIEW_LIMIT) onPreviewLimit?.()
+  }
+  const nudge = (direction: number) => updateValue(valueRef.current + direction * (config.step || 1))
+  const commitValue = () => {
+    clearHold()
+    const value = valueRef.current
+    if (value === committedValueRef.current) {
+      dirtyRef.current = false
+      return
+    }
+    committedValueRef.current = value
+    dirtyRef.current = false
+    apply(config, value)
+  }
+  const applyDirectValue = (value: number) => {
+    valueRef.current = value
+    committedValueRef.current = value
+    dirtyRef.current = false
+    apply(config, value)
+  }
+  const startHold = (direction: number) => {
+    clearHold()
+    nudge(direction)
+    holdTimeoutRef.current = window.setTimeout(() => {
+      holdIntervalRef.current = window.setInterval(() => nudge(direction), 85)
+    }, 350)
+  }
+  const handleStepKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, direction: number) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    if (!event.repeat) startHold(direction)
+  }
+  const handleStepKeyUp = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); commitValue() }
+  }
+  const handleRangeChange = (event: React.ChangeEvent<HTMLInputElement>) => updateValue(Number(event.target.value))
 
   return <div className={`control ${dependency ? 'dependent' : ''}`}>
     <div className="control-head">
@@ -320,11 +395,11 @@ function CameraControl({ config, draft, setDraft, apply }: { config: Config; dra
         {isAutomatic && <small>{isAutoEnabled(config) ? '自动调整中' : '手动模式'}</small>}
       </label>
       <span>
-        <output>{isCompression ? quality?.label : config.isMenu ? (config.menuItems?.[String(config.value)] || config.value) : config.value}</output>
-        <button type="button" className="control-reset" onClick={() => apply(config, config.default)} aria-label={`将${title}恢复默认`}>恢复默认</button>
+        <output>{isCompression ? quality?.label : config.isMenu ? (config.menuItems?.[String(config.value)] || config.value) : isExposure ? `${config.value} (${formatExposure(config.value)})` : config.value}</output>
+        <button type="button" className="control-reset" onClick={() => applyDirectValue(config.default)} aria-label={`将${title}恢复默认`}>恢复默认</button>
       </span>
     </div>
-    {isCompression ? <select id={inputId} value={quality?.value} onChange={event => apply(config, Number(event.target.value))}>{QUALITY_PRESETS.map(preset => <option key={preset.value} value={preset.value}>{preset.label}（{preset.value}）</option>)}</select> : config.isMenu ? <select id={inputId} value={config.value} onChange={event => apply(config, Number(event.target.value))}>{Object.entries(config.menuItems || {}).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> : <input id={inputId} aria-label={title} type="range" min={config.minimum} max={config.maximum} step={config.step || 1} value={config.value} onChange={event => setDraft(current => current.map(item => item.ID === config.ID ? { ...item, value: Number(event.target.value) } : item))} onPointerUp={event => apply(config, Number(event.currentTarget.value))} onKeyUp={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') apply(config, Number(event.currentTarget.value)) }} />}
+    {isCompression ? <select id={inputId} value={quality?.value} onChange={event => apply(config, Number(event.target.value))}>{QUALITY_PRESETS.map(preset => <option key={preset.value} value={preset.value}>{preset.label}（{preset.value}）</option>)}</select> : config.isMenu ? <select id={inputId} value={config.value} onChange={event => apply(config, Number(event.target.value))}>{Object.entries(config.menuItems || {}).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> : <div className="range-control"><input id={inputId} aria-label={title} type="range" min={config.minimum} max={config.maximum} step={config.step || 1} value={config.value} onChange={handleRangeChange} onPointerUp={commitValue} onPointerCancel={commitValue} onKeyUp={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') commitValue() }} /><span className="range-stepper" aria-label={`${title}微调`}><button type="button" aria-label={`${title}增加`} title="增加" onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); startHold(1) }} onPointerUp={commitValue} onPointerCancel={commitValue} onKeyDown={event => handleStepKeyDown(event, 1)} onKeyUp={handleStepKeyUp}>▲</button><button type="button" aria-label={`${title}减少`} title="减少" onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); startHold(-1) }} onPointerUp={commitValue} onPointerCancel={commitValue} onKeyDown={event => handleStepKeyDown(event, -1)} onKeyUp={handleStepKeyUp}>▼</button></span></div>}
     {isCompression && <small className="control-detail">{quality?.detail}</small>}
   </div>
 }
@@ -364,12 +439,29 @@ function Wizard({ step, setStep, onClose, online, resolution, draft, configs, sa
   busy: boolean
   onCreate: () => void
 }) {
+  const exposure = draft.find(config => config.ID === CONTROL.exposureTime)
+  const previewBlocked = step === 2 && !trialUrl && exposure !== undefined && exposure.value > EXPOSURE_PREVIEW_LIMIT
+  const [exposureWarning, setExposureWarning] = useState(false)
+  const warningSeen = useRef(exposureWarningWasSeen())
+  const wasPreviewBlocked = useRef(false)
+  const showExposureWarning = () => {
+    if (warningSeen.current) return
+    warningSeen.current = true
+    rememberExposureWarning()
+    setExposureWarning(true)
+  }
+  useEffect(() => {
+    if (previewBlocked && !wasPreviewBlocked.current) showExposureWarning()
+    if (!previewBlocked) setExposureWarning(false)
+    wasPreviewBlocked.current = previewBlocked
+  }, [previewBlocked])
+
   return <div className="create-page" aria-labelledby="wizard-title"><section className="wizard"><header><div><p>NEW SHOOTING PROJECT</p><h2 id="wizard-title">创建拍摄项目</h2></div><button aria-label="关闭" onClick={onClose}>×</button></header><div className="steps">{['项目信息', '相机调试', '拍摄配置', '确认创建'].map((label, index) => <span className={step === index + 1 ? 'current' : step > index + 1 ? 'done' : ''} key={label}><b>{step > index + 1 ? '✓' : index + 1}</b>{label}</span>)}</div><div className="wizard-body">
     {step === 1 && <div className="intro"><div><p>STEP 01 / 04</p><h3>先定义这次拍摄</h3><label htmlFor="project-name">项目名称<input id="project-name" autoFocus value={name} onChange={event => setName(event.target.value)} placeholder="例如：龟背竹 · 春季生长" /></label><label htmlFor="project-info">项目说明 <small>可选</small><textarea id="project-info" value={info} onChange={event => setInfo(event.target.value)} placeholder="记录拍摄地点、植物品种或实验备注" /></label></div></div>}
-    {step === 2 && <div className="tune"><div><div className="trial-stage">{trialUrl ? <><img src={trialUrl} alt="试拍原图" /><span className="trial-badge">试拍原图 · {resolution.capture.width} × {resolution.capture.height}</span>{trialStale && <span className="trial-stale">参数已变化，请重新试拍</span>}</> : trialBusy ? <div className="offline">正在试拍<small>相机正在切换到实际拍摄分辨率</small></div> : <Preview compact online={online} resolution={resolution.preview} />}</div><div className="trial-actions"><button type="button" className="primary" disabled={trialBusy} onClick={onTrialShot}>{trialBusy ? '试拍中…' : '试拍'}</button>{trialUrl && <button type="button" className="secondary" onClick={onReturnToLive}>返回实时画面</button>}</div><p className="hint">{trialUrl ? '这是一张实际拍摄分辨率的临时原图，不会保存到项目。' : '实时画面用于快速调参；点击“试拍”验证实际拍摄效果。'} <span>{saved ? '参数已应用' : '有未保存参数'}</span></p></div><div className="controls"><div className="control-title"><div><p>CAMERA CONTROLS</p><h3>画面参数</h3></div><button type="button" onClick={() => setDraft(configs)}>恢复上次保存</button></div><p className="controls-help">自动控制开启时，相机会持续调整画面；切换为手动后才显示对应的精细参数。</p>{sortControls(draft).filter(config => !isAdvancedControl(config)).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} />)}<details className="advanced-settings"><summary><span><strong>高级设置</strong><small>压缩质量和底层色彩参数</small></span><b>展开</b></summary><div className="advanced-controls">{sortControls(draft).filter(isAdvancedControl).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} />)}<p className="advanced-hint">这些参数会影响文件大小或底层色彩处理，通常保持默认即可。</p></div></details><div className="save-hint">调整完成后点击“保存参数”，这些设置会写入拍摄项目。每个参数都可以单独恢复默认值。</div></div></div>}
-    {step === 3 && <div className="config"><div><p>STEP 03 / 04</p><h3>设置拍摄节奏</h3><label htmlFor="interval">拍摄间隔<select id="interval" value={intervalMode === 'custom' ? 'custom' : String(interval)} onChange={event => selectInterval(event.target.value)}><option value={60000}>每 1 分钟</option><option value={300000}>每 5 分钟</option><option value={900000}>每 15 分钟</option><option value={3600000}>每 1 小时</option><option value="custom">自定义</option></select></label>{intervalMode === 'custom' && <div className="custom-interval" aria-label="自定义拍摄间隔"><label htmlFor="custom-interval-value">间隔数值<input id="custom-interval-value" type="number" min="1" step="1" inputMode="numeric" value={customIntervalValue} onChange={event => updateCustomInterval(event.target.value)} onBlur={() => { if (!customIntervalValue) updateCustomInterval('1') }} /></label><label htmlFor="custom-interval-unit">单位<select id="custom-interval-unit" value={customIntervalUnit} onChange={event => { const unit = event.target.value as IntervalUnit; setCustomIntervalUnit(unit); updateCustomInterval(customIntervalValue || '1', unit) }}><option value="minutes">分钟</option><option value="seconds">秒</option></select></label><small>自定义间隔至少为 1 秒。</small></div>}<label htmlFor="days">预计拍摄天数<input id="days" type="number" min="1" value={days} onChange={event => setDays(Number(event.target.value))} /></label></div><div className="estimate"><p>ESTIMATE</p><div className="estimate-metrics"><span><strong>{estimate.toLocaleString()}</strong><small>预计照片数量</small></span><span><strong>{formatVideoDuration(estimate / 30)}</strong><small>30 fps 视频时长</small></span></div><small className="estimate-note">按每张照片作为一帧进行估算</small></div></div>}
+    {step === 2 && <div className="tune"><div><div className={`trial-stage ${previewBlocked ? 'preview-blocked' : ''}`}>{trialUrl ? <><img src={trialUrl} alt="试拍原图" /><span className="trial-badge">试拍原图 · {resolution.capture.width} × {resolution.capture.height}</span>{trialStale && <span className="trial-stale">参数已变化，请重新试拍</span>}</> : trialBusy ? <div className="offline">正在试拍<small>相机正在切换到实际拍摄分辨率</small></div> : <Preview compact online={online} resolution={resolution.preview} />}{previewBlocked && <div className="preview-limit-overlay" role="status"><strong>实时预览已暂停</strong><span>曝光时间超过 100ms，请点击“试拍”查看实际效果。</span></div>}</div><div className="trial-actions"><button type="button" className="primary" disabled={trialBusy} onClick={onTrialShot}>{trialBusy ? '试拍中…' : '试拍'}</button>{trialUrl && <button type="button" className="secondary" onClick={onReturnToLive}>返回实时画面</button>}</div><p className="hint">{trialUrl ? '这是一张实际拍摄分辨率的临时原图，不会保存到项目。' : previewBlocked ? '曝光时间超过实时预览能力，请使用试拍查看效果。' : '实时画面用于快速调参；点击“试拍”验证实际拍摄效果。'} <span>{saved ? '参数已应用' : '有未保存参数'}</span></p></div><div className="controls"><div className="control-title"><div><p>CAMERA CONTROLS</p><h3>画面参数</h3></div><button type="button" onClick={() => setDraft(configs)}>恢复上次保存</button></div><p className="controls-help">自动控制开启时，相机会持续调整画面；切换为手动后才显示对应的精细参数。</p>{sortControls(draft).filter(config => !isAdvancedControl(config)).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} previewing={!trialUrl} onPreviewLimit={showExposureWarning} />)}<details className="advanced-settings"><summary><span><strong>高级设置</strong><small>压缩质量和底层色彩参数</small></span><b>展开</b></summary><div className="advanced-controls">{sortControls(draft).filter(isAdvancedControl).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} previewing={!trialUrl} onPreviewLimit={showExposureWarning} />)}<p className="advanced-hint">这些参数会影响文件大小或底层色彩处理，通常保持默认即可。</p></div></details><div className="save-hint">调整完成后点击“保存参数”，这些设置会写入拍摄项目。每个参数都可以单独恢复默认值。</div></div></div>}
+    {step === 3 && <div className="config"><div><p>STEP 03 / 04</p><h3>设置拍摄节奏</h3><label htmlFor="interval">拍摄间隔<select id="interval" value={intervalMode === 'custom' ? 'custom' : String(interval)} onChange={event => selectInterval(event.target.value)}><option value={60000}>每 1 分钟</option><option value={300000}>每 5 分钟</option><option value={900000}>每 15 分钟</option><option value={3600000}>每 1 小时</option><option value="custom">自定义</option></select></label>{intervalMode === 'custom' && <div className="custom-interval" aria-label="自定义拍摄间隔"><label htmlFor="custom-interval-value">间隔数值<input id="custom-interval-value" type="number" min="1" step="1" inputMode="numeric" value={customIntervalValue} onChange={event => updateCustomInterval(event.target.value)} onBlur={() => { if (!customIntervalValue) updateCustomInterval('1') }} /></label><label htmlFor="custom-interval-unit">单位<select id="custom-interval-unit" value={customIntervalUnit} onChange={event => { const unit = event.target.value as IntervalUnit; setCustomIntervalUnit(unit); updateCustomInterval(customIntervalValue || '1', unit) }}><option value="minutes">分钟</option><option value="seconds">秒</option></select></label><small>自定义间隔至少为 1 秒。</small></div>}<label htmlFor="days">预计拍摄天数<input id="days" type="number" min="1" value={days} onChange={event => setDays(Number(event.target.value))} /></label></div><div className="estimate"><p>ESTIMATE</p><div className="estimate-metrics"><span><strong>{estimate.toLocaleString()}</strong><small>预计照片数量</small></span></div><small className="estimate-note">按拍摄间隔估算照片数量，项目中只保存单张照片。</small></div></div>}
     {step === 4 && <div className="confirm"><b>✓</b><p>STEP 04 / 04</p><h3>准备好开始记录了吗？</h3><p>确认后会创建项目，并将你保存的相机参数应用到这次拍摄。</p><div><span>项目名称<strong>{name || '未命名项目'}</strong></span><span>拍摄间隔<strong>{intervalLabel}</strong></span><span>参数状态<strong>{saved ? '已保存到项目' : '尚有参数未保存'}</strong></span></div></div>}
-  </div><footer><button className="secondary" onClick={() => step === 1 ? onClose() : setStep(step - 1)}>{step === 1 ? '取消' : '返回'}</button><span><button className="secondary" onClick={() => setSaved(true)}>保存参数</button>{step < 4 ? <button className="primary" onClick={() => setStep(step + 1)}>继续 →</button> : <button className="primary" disabled={busy} onClick={onCreate}>{busy ? '创建中…' : '创建项目 ✓'}</button>}</span></footer></section></div>
+  </div><footer><button className="secondary" onClick={() => step === 1 ? onClose() : setStep(step - 1)}>{step === 1 ? '取消' : '返回'}</button><span><button className="secondary" onClick={() => setSaved(true)}>保存参数</button>{step < 4 ? <button className="primary" onClick={() => setStep(step + 1)}>继续 →</button> : <button className="primary" disabled={busy} onClick={onCreate}>{busy ? '创建中…' : '创建项目 ✓'}</button>}</span></footer></section>{exposureWarning && <div className="exposure-warning-backdrop" role="presentation"><section className="exposure-warning" role="alertdialog" aria-modal="true" aria-labelledby="exposure-warning-title" tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') setExposureWarning(false) }}><div className="exposure-warning-icon" aria-hidden="true">!</div><div><p>PREVIEW LIMIT</p><h3 id="exposure-warning-title">实时预览暂不可用</h3><span>曝光时间超过 100ms 后，H.264 预览无法稳定显示。请点击“试拍”查看高曝光参数下的实际照片。</span></div><button type="button" className="primary" autoFocus onClick={() => setExposureWarning(false)}>知道了</button></section></div>}</div>
 }
 
 export default App

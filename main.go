@@ -60,8 +60,8 @@ var (
 	// resolution while still allowing an explicit -width/-height override.
 	width         = flag.Int("width", 0, "JPEG capture width (0 uses camera maximum)")
 	height        = flag.Int("height", 0, "JPEG capture height (0 uses camera maximum)")
-	previewWidth  = flag.Int("preview-width", 1280, "H.264 preview width")
-	previewHeight = flag.Int("preview-height", 720, "H.264 preview height")
+	previewWidth  = flag.Int("preview-width", 1920, "H.264 preview width")
+	previewHeight = flag.Int("preview-height", 1080, "H.264 preview height")
 
 	flashPin           = flag.String("flash-pin", "", "// \"11\": gpio number\n// \"GPIO11\": gpio name as defined per the bcm238x CPU driver\n// \"P1_23\": board header P1 position 23 name as defined by the rpi board driver")
 	flashTriggerOnHigh = flag.Bool("flash-trigger-on-high", true, "")

@@ -1356,14 +1356,15 @@ function A(a){a&&(p.print(a),p.fa(a));H=i;d("abort() at "+Fa()+"\nIf this abort(
       var a3 = 0;
       var a4 = 0;
 
-      // Full-range BT.601 conversion. The H.264 camera stream uses the
-      // complete 8-bit luma/chroma range, so do not subtract the limited-range
-      // luma offset (16) here.
-      a0 = imul(1024, y)|0;
-      a1 = imul(1436, (v - 128)|0)|0;
-      a2 = imul(731, (v - 128)|0)|0;
-      a3 = imul(352, (u - 128)|0)|0;
-      a4 = imul(1815, (u - 128)|0)|0;
+      // BT.601 limited-range conversion. The bcm2835 H.264 encoder emits
+      // broadcast-range YCbCr (Y=16..235, Cb/Cr=16..240), while JPEG stills
+      // are full-range. Expand the H.264 range before converting so preview
+      // brightness matches the captured image.
+      a0 = imul(1192, (y - 16)|0)|0;
+      a1 = imul(1634, (v - 128)|0)|0;
+      a2 = imul(833, (v - 128)|0)|0;
+      a3 = imul(400, (u - 128)|0)|0;
+      a4 = imul(2066, (u - 128)|0)|0;
 
       r = (((a0 + a1)|0) >> 10)|0;
       g = (((((a0 - a2)|0) - a3)|0) >> 10)|0;
@@ -2011,15 +2012,13 @@ var fragmentShaderScript = Script.createFromSource("x-shader/x-fragment", `
   uniform sampler2D YTexture;
   uniform sampler2D UTexture;
   uniform sampler2D VTexture;
-  // The Raspberry Pi V4L2 H.264 stream is reported as full-range YCbCr
-  // (Y/U/V use the complete 0..255 range). Keep this conversion aligned with
-  // that stream instead of applying the limited-range 16..235 expansion,
-  // which makes the live preview noticeably darker than JPEG trial shots.
+  // The bcm2835 H.264 encoder emits BT.601 limited-range YCbCr. Expand the
+  // luma/chroma range here so the live preview matches full-range JPEG shots.
   const mat4 YUV2RGB = mat4
   (
-   1.0, 0, 1.402, -0.701,
-   1.0, -0.344136, -0.714136, .529136,
-   1.0, 1.772, 0, -0.886,
+   1.164383, 0, 1.596027, -0.874202,
+   1.164383, -0.391762, -0.812968, .531668,
+   1.164383, 2.017232, 0, -1.085631,
    0, 0, 0, 1
   );
 
