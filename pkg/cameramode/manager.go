@@ -81,23 +81,45 @@ func defaultFactory(path string, format v4l2.FourCCType, width, height, fps int)
 		}
 		return nil, fmt.Errorf("camera format negotiation: %w", err)
 	}
+	adapter := &deviceAdapter{d: d}
 	if format == v4l2.PixelFmtH264 {
-		// Broadway, the browser-side decoder, supports H.264 Baseline only.
-		// Configure the camera encoder before starting capture; the bitstream is
-		// still forwarded raw and is never decoded on the Pi.
-		if err := d.SetControlValue(0x00990a6b, 0); err != nil { // h264_profile: Baseline
+		if err := configureH264Controls(adapter); err != nil {
 			_ = d.Close()
-			return nil, fmt.Errorf("set H.264 baseline profile: %w", err)
-		}
-		if err := d.SetControlValue(0x009909e2, 1); err != nil { // repeat_sequence_header
-			_ = d.Close()
-			return nil, fmt.Errorf("enable repeated H.264 sequence header: %w", err)
+			return nil, err
 		}
 	}
-	return &deviceAdapter{d: d}, nil
+	return adapter, nil
 }
 
 type deviceAdapter struct{ d *device.Device }
+
+func configureH264Controls(d controlDevice) error {
+	// The bcm2835 MMAL driver otherwise keeps the sensor exposure bounded by
+	// the nominal video frame interval. That makes a manual exposure such as
+	// 590 (59 ms) render substantially darker in H.264 than in the JPEG
+	// capture mode. Allow the driver to lengthen the interval when needed;
+	// this control is deliberately preview-only and is not part of the
+	// user's persisted camera settings.
+	const exposureDynamicFramerate v4l2.CtrlID = 10094851
+	if err := d.SetControlValue(exposureDynamicFramerate, 1); err != nil {
+		return fmt.Errorf("enable H.264 dynamic exposure framerate: %w", err)
+	}
+	if actual, err := d.GetControl(exposureDynamicFramerate); err != nil {
+		return fmt.Errorf("read H.264 dynamic exposure framerate: %w", err)
+	} else if actual.Value != 1 {
+		return fmt.Errorf("H.264 dynamic exposure framerate readback=%d, want 1", actual.Value)
+	}
+	// Broadway, the browser-side decoder, supports H.264 Baseline only.
+	// Configure the camera encoder before starting capture; the bitstream is
+	// still forwarded raw and is never decoded on the Pi.
+	if err := d.SetControlValue(0x00990a6b, 0); err != nil { // h264_profile: Baseline
+		return fmt.Errorf("set H.264 baseline profile: %w", err)
+	}
+	if err := d.SetControlValue(0x009909e2, 1); err != nil { // repeat_sequence_header
+		return fmt.Errorf("enable repeated H.264 sequence header: %w", err)
+	}
+	return nil
+}
 
 func (d *deviceAdapter) Start(ctx context.Context) error { return d.d.Start(ctx) }
 func (d *deviceAdapter) Stop() error                     { return d.d.Stop() }

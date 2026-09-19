@@ -2021,9 +2021,18 @@ var fragmentShaderScript = Script.createFromSource("x-shader/x-fragment", `
    1.164383, 2.017232, 0, -1.085631,
    0, 0, 0, 1
   );
+  // At 1920x1080 the bcm2835 video path applies a sensor-mode attenuation
+  // that is not present in the full-resolution JPEG path. Keep the transport
+  // native H.264, but restore the preview luma before presenting it. The
+  // The measured JPEG/H.264 luma ratio on this sensor is about 2.4 at the
+  // manual exposure values used by the tuning page. Leave a little headroom
+  // for highlights rather than clipping the entire preview.
+  const float PREVIEW_LUMA_GAIN = 2.35;
 
   void main(void) {
-   gl_FragColor = vec4( texture2D(YTexture,  vTextureCoord).x, texture2D(UTexture, vTextureCoord).x, texture2D(VTexture, vTextureCoord).x, 1) * YUV2RGB;
+   vec4 yuv = vec4(texture2D(YTexture, vTextureCoord).x, texture2D(UTexture, vTextureCoord).x, texture2D(VTexture, vTextureCoord).x, 1);
+   yuv.x = clamp((yuv.x - 0.0625) * PREVIEW_LUMA_GAIN + 0.0625, 0.0, 1.0);
+   gl_FragColor = yuv * YUV2RGB;
   }
 `);
 

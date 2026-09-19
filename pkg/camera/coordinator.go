@@ -26,6 +26,7 @@ type ModeCoordinator struct {
 	mu                sync.Mutex
 	mode              cameramode.Mode
 	captureFrames     <-chan []byte
+	desiredControls   map[v4l2.CtrlID]v4l2.CtrlValue
 }
 
 func (c *ModeCoordinator) GetKnownCtrlConfigs() ([]ov.Config, error) {
@@ -65,7 +66,17 @@ func (c *ModeCoordinator) GetKnownCtrlSettings() (model.CameraSettings, error) {
 }
 
 func NewModeCoordinator(ctx context.Context, legacy *Camera, manager *cameramode.Manager, width, height int) *ModeCoordinator {
-	return &ModeCoordinator{ctx: ctx, legacy: legacy, manager: manager, width: width, height: height, trialWarmupFrames: 2, trialSettleFrames: 1, mode: cameramode.ModeCapture}
+	desired := make(map[v4l2.CtrlID]v4l2.CtrlValue)
+	if legacy != nil {
+		if settings, err := legacy.GetKnownCtrlSettings(); err == nil {
+			for id, value := range settings {
+				desired[v4l2.CtrlID(id)] = v4l2.CtrlValue(value)
+			}
+		} else {
+			logger.Warnw("could not snapshot camera controls before mode coordinator initialization", "error", err)
+		}
+	}
+	return &ModeCoordinator{ctx: ctx, legacy: legacy, manager: manager, width: width, height: height, trialWarmupFrames: 2, trialSettleFrames: 1, mode: cameramode.ModeCapture, desiredControls: desired}
 }
 
 // SetTrialWarmupFrames controls how many valid JPEG frames are discarded after
@@ -100,6 +111,57 @@ func (c *ModeCoordinator) TrialFrameDiscardCounts() (warmup, settle int) {
 	defer c.mu.Unlock()
 	return c.trialWarmupFrames, c.trialSettleFrames
 }
+
+// ApplySettings records and applies a group of desired camera controls. The
+// values are retained so the same controls can be written to the next V4L2
+// device opened during a mode switch.
+func (c *ModeCoordinator) ApplySettings(settings model.CameraSettings) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.desiredControls == nil {
+		c.desiredControls = make(map[v4l2.CtrlID]v4l2.CtrlValue)
+	}
+	for id, value := range settings {
+		c.desiredControls[v4l2.CtrlID(id)] = v4l2.CtrlValue(value)
+	}
+	return c.applyDesiredControlsLocked(c.mode)
+}
+
+func (c *ModeCoordinator) applyDesiredControlsLocked(mode cameramode.Mode) error {
+	if len(c.desiredControls) == 0 {
+		return nil
+	}
+	for _, id := range KnownControlIDs() {
+		value, ok := c.desiredControls[id]
+		if !ok {
+			continue
+		}
+		var err error
+		if mode == cameramode.ModePreview {
+			err = c.manager.SetControlValue(id, value)
+		} else {
+			err = c.legacy.SetControlValue(id, value)
+		}
+		if err != nil {
+			return fmt.Errorf("reapply camera control %d=%d in %s mode: %w", id, value, mode, err)
+		}
+		var actual v4l2.Control
+		if mode == cameramode.ModePreview {
+			actual, err = c.manager.GetControl(id)
+		} else {
+			actual, err = c.legacy.getControl(id)
+		}
+		if err != nil {
+			logger.Warnw("camera control readback failed after mode switch", "mode", mode, "id", id, "desired", value, "error", err)
+			continue
+		}
+		if actual.Value != value {
+			logger.Warnw("camera control value changed after mode switch", "mode", mode, "id", id, "desired", value, "actual", actual.Value)
+		}
+	}
+	logger.Infow("camera controls reapplied after mode switch", "mode", mode, "count", len(c.desiredControls))
+	return nil
+}
 func (c *ModeCoordinator) Switch(mode cameramode.Mode) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -111,6 +173,10 @@ func (c *ModeCoordinator) Switch(mode cameramode.Mode) error {
 			return err
 		}
 		if err := c.manager.Switch(mode); err != nil {
+			return err
+		}
+		if err := c.applyDesiredControlsLocked(mode); err != nil {
+			logger.Errorw("failed to reapply camera controls after switching mode", "mode", mode, "error", err)
 			return err
 		}
 		c.mode = mode
@@ -136,6 +202,11 @@ func (c *ModeCoordinator) Switch(mode cameramode.Mode) error {
 	}
 	if err == nil {
 		c.captureFrames = frames
+		if err = c.applyDesiredControlsLocked(mode); err != nil {
+			logger.Errorw("failed to reapply camera controls after switching mode", "mode", mode, "error", err)
+			_ = c.legacy.Stop()
+			return err
+		}
 		c.mode = mode
 	}
 	return err
@@ -231,8 +302,18 @@ func (c *ModeCoordinator) CaptureOnce(ctx context.Context) ([]byte, error) {
 func (c *ModeCoordinator) SetControlValue(id v4l2.CtrlID, value v4l2.CtrlValue) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	var err error
 	if c.mode == cameramode.ModePreview {
-		return c.manager.SetControlValue(id, value)
+		err = c.manager.SetControlValue(id, value)
+	} else {
+		err = c.legacy.SetControlValue(id, value)
 	}
-	return c.legacy.SetControlValue(id, value)
+	if err != nil {
+		return err
+	}
+	if c.desiredControls == nil {
+		c.desiredControls = make(map[v4l2.CtrlID]v4l2.CtrlValue)
+	}
+	c.desiredControls[id] = value
+	return nil
 }

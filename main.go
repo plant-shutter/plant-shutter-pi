@@ -62,6 +62,7 @@ var (
 	height            = flag.Int("height", 0, "JPEG capture height (0 uses camera maximum)")
 	previewWidth      = flag.Int("preview-width", 1920, "H.264 preview width")
 	previewHeight     = flag.Int("preview-height", 1080, "H.264 preview height")
+	previewFPS        = flag.Int("preview-fps", 10, "H.264 preview frame rate")
 	trialWarmupFrames = flag.Int("trial-warmup-frames", 2, "JPEG frames to discard before returning a trial shot")
 	trialSettleFrames = flag.Int("trial-settle-frames", 1, "additional JPEG frames to discard while the sensor settles after mode switching")
 
@@ -164,7 +165,7 @@ func main() {
 	}
 	// Keep the H.264 preview resolution separate from the still-capture
 	// resolution configured by -width/-height.
-	modeManager = cameramode.NewManager(ctx, *devName, *devName, *previewWidth, *previewHeight, 0)
+	modeManager = cameramode.NewManager(ctx, *devName, *devName, *previewWidth, *previewHeight, *previewFPS)
 	modeCoordinator = camera.NewModeCoordinator(ctx, dev, modeManager, consts.Width, consts.Height)
 	modeCoordinator.SetTrialWarmupFrames(*trialWarmupFrames)
 	modeCoordinator.SetTrialSettleFrames(*trialSettleFrames)
@@ -183,8 +184,10 @@ func main() {
 			logger.Warnw("could not inspect last running project", "error", resumeErr)
 		} else if last != nil && last.EndedAt.IsZero() {
 			logger.Infow("resuming shooting project after restart", "project", last.Name)
-			if dev != nil {
-				dev.UpdateSettings(last.CameraSettings)
+			if modeCoordinator != nil {
+				if err := modeCoordinator.ApplySettings(last.CameraSettings); err != nil {
+					logger.Errorw("failed to restore camera settings for resumed project", "project", last.Name, "error", err)
+				}
 			}
 			sch.Begin(last)
 		}
@@ -596,7 +599,11 @@ func startProject(pj *model.Project) error {
 		}
 	}
 	logger.Info("restore camera settings")
-	dev.UpdateSettings(pj.CameraSettings)
+	if modeCoordinator != nil {
+		if err := modeCoordinator.ApplySettings(pj.CameraSettings); err != nil {
+			return err
+		}
+	}
 	if pj.StartedAt.IsZero() {
 		pj.StartedAt = time.Now()
 	}
@@ -708,7 +715,7 @@ func updateProject(c *gin.Context) {
 		}
 	}
 	if p.Camera != nil && *p.Camera {
-		setting, err := dev.GetKnownCtrlSettings()
+		setting, err := modeCoordinator.GetKnownCtrlSettings()
 		if err != nil {
 			internalErr(c, err)
 			return
