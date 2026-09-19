@@ -16,14 +16,15 @@ import (
 // ModeCoordinator serializes the legacy control/capture camera and the native
 // H.264/JPEG mode manager so the V4L2 node is never opened twice.
 type ModeCoordinator struct {
-	legacy        *Camera
-	manager       *cameramode.Manager
-	ctx           context.Context
-	width, height int
-	OnCapture     func(<-chan []byte)
-	mu            sync.Mutex
-	mode          cameramode.Mode
-	captureFrames <-chan []byte
+	legacy            *Camera
+	manager           *cameramode.Manager
+	ctx               context.Context
+	width, height     int
+	trialWarmupFrames int
+	OnCapture         func(<-chan []byte)
+	mu                sync.Mutex
+	mode              cameramode.Mode
+	captureFrames     <-chan []byte
 }
 
 func (c *ModeCoordinator) GetKnownCtrlConfigs() ([]ov.Config, error) {
@@ -63,7 +64,19 @@ func (c *ModeCoordinator) GetKnownCtrlSettings() (model.CameraSettings, error) {
 }
 
 func NewModeCoordinator(ctx context.Context, legacy *Camera, manager *cameramode.Manager, width, height int) *ModeCoordinator {
-	return &ModeCoordinator{ctx: ctx, legacy: legacy, manager: manager, width: width, height: height, mode: cameramode.ModeCapture}
+	return &ModeCoordinator{ctx: ctx, legacy: legacy, manager: manager, width: width, height: height, trialWarmupFrames: 2, mode: cameramode.ModeCapture}
+}
+
+// SetTrialWarmupFrames controls how many valid JPEG frames are discarded after
+// switching from H.264 before a trial shot is returned. A small warmup lets
+// auto-exposure and white-balance settle after the camera is reopened.
+func (c *ModeCoordinator) SetTrialWarmupFrames(frames int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if frames < 0 {
+		frames = 0
+	}
+	c.trialWarmupFrames = frames
 }
 func (c *ModeCoordinator) Switch(mode cameramode.Mode) error {
 	c.mu.Lock()
@@ -132,12 +145,32 @@ func (c *ModeCoordinator) CaptureOnce(ctx context.Context) ([]byte, error) {
 	}()
 	c.mu.Lock()
 	frames := c.captureFrames
+	warmupFrames := c.trialWarmupFrames
 	c.mu.Unlock()
 	if frames == nil {
 		return nil, errors.New("jpeg capture stream is unavailable")
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	started := time.Now()
+	discarded := 0
+	for discarded < warmupFrames {
+		select {
+		case frame, ok := <-frames:
+			if !ok {
+				return nil, errors.New("camera closed during trial shot warmup")
+			}
+			if len(frame) == 0 {
+				continue
+			}
+			discarded++
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("trial shot warmup timeout after discarding %d/%d frames: %w", discarded, warmupFrames, waitCtx.Err())
+		}
+	}
+	if warmupFrames > 0 {
+		logger.Infow("trial shot warmup frames discarded", "requested", warmupFrames, "discarded", discarded, "elapsed", time.Since(started).String())
+	}
 	var frame []byte
 	select {
 	case frame = <-frames:

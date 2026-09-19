@@ -58,10 +58,11 @@ var (
 	// A zero capture dimension means "use the largest JPEG size reported by
 	// the camera". This keeps the default still image at the sensor's maximum
 	// resolution while still allowing an explicit -width/-height override.
-	width         = flag.Int("width", 0, "JPEG capture width (0 uses camera maximum)")
-	height        = flag.Int("height", 0, "JPEG capture height (0 uses camera maximum)")
-	previewWidth  = flag.Int("preview-width", 1920, "H.264 preview width")
-	previewHeight = flag.Int("preview-height", 1080, "H.264 preview height")
+	width             = flag.Int("width", 0, "JPEG capture width (0 uses camera maximum)")
+	height            = flag.Int("height", 0, "JPEG capture height (0 uses camera maximum)")
+	previewWidth      = flag.Int("preview-width", 1920, "H.264 preview width")
+	previewHeight     = flag.Int("preview-height", 1080, "H.264 preview height")
+	trialWarmupFrames = flag.Int("trial-warmup-frames", 2, "JPEG frames to discard before returning a trial shot")
 
 	flashPin           = flag.String("flash-pin", "", "// \"11\": gpio number\n// \"GPIO11\": gpio name as defined per the bcm238x CPU driver\n// \"P1_23\": board header P1 position 23 name as defined by the rpi board driver")
 	flashTriggerOnHigh = flag.Bool("flash-trigger-on-high", true, "")
@@ -163,6 +164,7 @@ func main() {
 	// resolution configured by -width/-height.
 	modeManager = cameramode.NewManager(ctx, *devName, *devName, *previewWidth, *previewHeight, 0)
 	modeCoordinator = camera.NewModeCoordinator(ctx, dev, modeManager, consts.Width, consts.Height)
+	modeCoordinator.SetTrialWarmupFrames(*trialWarmupFrames)
 	modeCoordinator.SetCaptureFrames(frames)
 	modeCoordinator.OnCapture = func(input <-chan []byte) {
 		frames = input
