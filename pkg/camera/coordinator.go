@@ -21,6 +21,7 @@ type ModeCoordinator struct {
 	ctx               context.Context
 	width, height     int
 	trialWarmupFrames int
+	trialSettleFrames int
 	OnCapture         func(<-chan []byte)
 	mu                sync.Mutex
 	mode              cameramode.Mode
@@ -64,7 +65,7 @@ func (c *ModeCoordinator) GetKnownCtrlSettings() (model.CameraSettings, error) {
 }
 
 func NewModeCoordinator(ctx context.Context, legacy *Camera, manager *cameramode.Manager, width, height int) *ModeCoordinator {
-	return &ModeCoordinator{ctx: ctx, legacy: legacy, manager: manager, width: width, height: height, trialWarmupFrames: 2, mode: cameramode.ModeCapture}
+	return &ModeCoordinator{ctx: ctx, legacy: legacy, manager: manager, width: width, height: height, trialWarmupFrames: 2, trialSettleFrames: 1, mode: cameramode.ModeCapture}
 }
 
 // SetTrialWarmupFrames controls how many valid JPEG frames are discarded after
@@ -79,12 +80,25 @@ func (c *ModeCoordinator) SetTrialWarmupFrames(frames int) {
 	c.trialWarmupFrames = frames
 }
 
-// TrialWarmupFrames returns the number of JPEG frames discarded after a mode
-// transition before exposing trial images.
-func (c *ModeCoordinator) TrialWarmupFrames() int {
+// SetTrialSettleFrames controls the additional valid JPEG frames discarded
+// after warmup while the sensor settles following a mode transition. Some
+// Raspberry Pi camera drivers report manual controls immediately but still
+// need one frame before exposure/gain output is stable.
+func (c *ModeCoordinator) SetTrialSettleFrames(frames int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.trialWarmupFrames
+	if frames < 0 {
+		frames = 0
+	}
+	c.trialSettleFrames = frames
+}
+
+// TrialFrameDiscardCounts returns the configured warmup and sensor-settle
+// frame counts used by both single and continuous trial capture.
+func (c *ModeCoordinator) TrialFrameDiscardCounts() (warmup, settle int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.trialWarmupFrames, c.trialSettleFrames
 }
 func (c *ModeCoordinator) Switch(mode cameramode.Mode) error {
 	c.mu.Lock()
@@ -160,33 +174,43 @@ func (c *ModeCoordinator) CaptureOnce(ctx context.Context) ([]byte, error) {
 			logger.Warnw("restore preview after trial shot failed", "error", err)
 		}
 	}()
-	c.mu.Lock()
-	frames := c.captureFrames
-	warmupFrames := c.trialWarmupFrames
-	c.mu.Unlock()
+	frames := c.CaptureFrames()
+	warmupFrames, settleFrames := c.TrialFrameDiscardCounts()
 	if frames == nil {
 		return nil, errors.New("jpeg capture stream is unavailable")
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	started := time.Now()
-	discarded := 0
-	for discarded < warmupFrames {
-		select {
-		case frame, ok := <-frames:
-			if !ok {
-				return nil, errors.New("camera closed during trial shot warmup")
+	discard := func(count int, phase string) error {
+		discarded := 0
+		for discarded < count {
+			select {
+			case frame, ok := <-frames:
+				if !ok {
+					return fmt.Errorf("camera closed during trial shot %s", phase)
+				}
+				if len(frame) == 0 {
+					continue
+				}
+				discarded++
+			case <-waitCtx.Done():
+				return fmt.Errorf("trial shot %s timeout after discarding %d/%d frames: %w", phase, discarded, count, waitCtx.Err())
 			}
-			if len(frame) == 0 {
-				continue
-			}
-			discarded++
-		case <-waitCtx.Done():
-			return nil, fmt.Errorf("trial shot warmup timeout after discarding %d/%d frames: %w", discarded, warmupFrames, waitCtx.Err())
 		}
+		return nil
+	}
+	if err := discard(warmupFrames, "warmup"); err != nil {
+		return nil, err
 	}
 	if warmupFrames > 0 {
-		logger.Infow("trial shot warmup frames discarded", "requested", warmupFrames, "discarded", discarded, "elapsed", time.Since(started).String())
+		logger.Infow("trial shot warmup frames discarded", "requested", warmupFrames, "discarded", warmupFrames, "elapsed", time.Since(started).String())
+	}
+	if err := discard(settleFrames, "sensor settle"); err != nil {
+		return nil, err
+	}
+	if settleFrames > 0 {
+		logger.Infow("trial shot sensor settle frames discarded", "requested", settleFrames, "discarded", settleFrames, "elapsed", time.Since(started).String())
 	}
 	var frame []byte
 	select {

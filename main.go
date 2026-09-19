@@ -63,6 +63,7 @@ var (
 	previewWidth      = flag.Int("preview-width", 1920, "H.264 preview width")
 	previewHeight     = flag.Int("preview-height", 1080, "H.264 preview height")
 	trialWarmupFrames = flag.Int("trial-warmup-frames", 2, "JPEG frames to discard before returning a trial shot")
+	trialSettleFrames = flag.Int("trial-settle-frames", 1, "additional JPEG frames to discard while the sensor settles after mode switching")
 
 	flashPin           = flag.String("flash-pin", "", "// \"11\": gpio number\n// \"GPIO11\": gpio name as defined per the bcm238x CPU driver\n// \"P1_23\": board header P1 position 23 name as defined by the rpi board driver")
 	flashTriggerOnHigh = flag.Bool("flash-trigger-on-high", true, "")
@@ -166,6 +167,7 @@ func main() {
 	modeManager = cameramode.NewManager(ctx, *devName, *devName, *previewWidth, *previewHeight, 0)
 	modeCoordinator = camera.NewModeCoordinator(ctx, dev, modeManager, consts.Width, consts.Height)
 	modeCoordinator.SetTrialWarmupFrames(*trialWarmupFrames)
+	modeCoordinator.SetTrialSettleFrames(*trialSettleFrames)
 	modeCoordinator.SetCaptureFrames(frames)
 	modeCoordinator.OnCapture = func(input <-chan []byte) {
 		frames = input
@@ -446,18 +448,25 @@ func trialStream(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 	c.Header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
 	c.Status(http.StatusOK)
-	for i := 0; i < modeCoordinator.TrialWarmupFrames(); i++ {
-		select {
-		case frame, open := <-frames:
-			if !open {
-				return
+	warmupFrames, settleFrames := modeCoordinator.TrialFrameDiscardCounts()
+	discard := func(count int) bool {
+		for i := 0; i < count; i++ {
+			select {
+			case frame, open := <-frames:
+				if !open {
+					return false
+				}
+				if len(frame) == 0 {
+					i--
+				}
+			case <-c.Request.Context().Done():
+				return false
 			}
-			if len(frame) == 0 {
-				i--
-			}
-		case <-c.Request.Context().Done():
-			return
 		}
+		return true
+	}
+	if !discard(warmupFrames) || !discard(settleFrames) {
+		return
 	}
 	for {
 		select {
