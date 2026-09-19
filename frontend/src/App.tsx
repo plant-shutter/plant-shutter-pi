@@ -184,6 +184,7 @@ function App() {
   const [days, setDays] = useState(1)
   const [resolution, setResolution] = useState<Resolution>({ capture: { width: 0, height: 0 }, preview: { width: 0, height: 0 } })
   const [trialUrl, setTrialUrl] = useState<string | null>(null)
+  const [trialStreamUrl, setTrialStreamUrl] = useState<string | null>(null)
   const [trialStale, setTrialStale] = useState(false)
   const [trialBusy, setTrialBusy] = useState(false)
 
@@ -221,6 +222,7 @@ function App() {
       const controls = await api<Config[]>('/api/device/config')
       if (controls.length) { setConfigs(controls); setDraft(controls) }
       setTrialUrl(null)
+      setTrialStreamUrl(null)
       setTrialStale(false)
     } catch { setStep(0); setNotice('相机暂时无法进入调参界面，请稍后重试') } finally { setBusy(false) }
   }
@@ -255,7 +257,23 @@ function App() {
       setNotice('试拍完成，已显示实际拍摄分辨率原图')
     } catch (error) { setNotice(error instanceof Error ? error.message : '试拍失败，请重试') } finally { setTrialBusy(false) }
   }
-  const returnToLive = () => { if (trialUrl) URL.revokeObjectURL(trialUrl); setTrialUrl(null); setTrialStale(false) }
+  const startTrialStream = async () => {
+    setTrialBusy(true)
+    try {
+      await api('/api/device/config', { method: 'PUT', body: JSON.stringify(draft.map(config => ({ ID: config.ID, Value: config.value }))) })
+      await new Promise(resolve => window.setTimeout(resolve, 200))
+      if (trialUrl) URL.revokeObjectURL(trialUrl)
+      setTrialUrl(null)
+      setTrialStale(false)
+      setTrialStreamUrl(`/api/device/trial-stream?session=${Date.now()}`)
+      setNotice('连续试拍已开始，画面会持续更新')
+    } catch (error) { setNotice(error instanceof Error ? error.message : '连续试拍失败，请重试') } finally { setTrialBusy(false) }
+  }
+  const stopTrialStream = () => {
+    setTrialStreamUrl(null)
+    setNotice('连续试拍已停止')
+  }
+  const returnToLive = () => { if (trialUrl) URL.revokeObjectURL(trialUrl); setTrialUrl(null); setTrialStreamUrl(null); setTrialStale(false) }
   const closeCreate = async () => { returnToLive(); await api('/api/device/mode', { method: 'PUT', body: JSON.stringify({ mode: 'preview' }) }).catch(() => undefined); setStep(0) }
   const create = async () => {
     if (!name.trim()) { setNotice('请填写项目名称'); setStep(1); return }
@@ -300,7 +318,7 @@ function App() {
     setIntervalValue(Number(value))
   }
 
-  return <div className={`shell ${step > 0 ? 'create-open' : ''}`}><main><header><div><p>CONTROL ROOM / LOCAL</p><h1>{view === 'home' ? '植物生长监控' : view === 'gallery' ? '照片图库' : selected ? selected.name : '拍摄项目'}</h1></div>{view !== 'home' && <button className="header-back secondary" onClick={() => setView('home')}>← 返回总览</button>}<span className={online ? 'pill ok' : 'pill warn'}>● {online ? '设备在线' : '设备离线'}</span></header>{notice && <div className="notice" role="status">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}{view === 'home' && step === 0 && <Home online={online} resolution={resolution} busy={busy} running={running} projects={projects} onCreate={beginCreate} onProject={openProject} />}{view === 'projects' && step === 0 && <Projects projects={projects} selected={selected} busy={busy} images={images} onSelect={openProject} onCreate={beginCreate} onRun={updateProject} onEnd={endProject} onGallery={openGallery} onClear={clearImages} />}{view === 'gallery' && step === 0 && <Gallery project={selected} images={images} onDelete={deleteImage} onClear={clearImages} />}</main>{step > 0 && <Wizard step={step} setStep={setStep} onClose={closeCreate} online={online} resolution={resolution} draft={draft} configs={configs} saved={saved} setSaved={setSaved} setDraft={setDraft} apply={apply} trialUrl={trialUrl} trialStale={trialStale} trialBusy={trialBusy} onTrialShot={trialShot} onReturnToLive={returnToLive} name={name} setName={setName} info={info} setInfo={setInfo} interval={interval} intervalMode={intervalMode} customIntervalValue={customIntervalValue} customIntervalUnit={customIntervalUnit} updateCustomInterval={updateCustomInterval} setCustomIntervalUnit={setCustomIntervalUnit} selectInterval={selectInterval} days={days} setDays={setDays} estimate={estimate} intervalLabel={intervalLabel} busy={busy} onCreate={create} />}</div>
+  return <div className={`shell ${step > 0 ? 'create-open' : ''}`}><main><header><div><p>CONTROL ROOM / LOCAL</p><h1>{view === 'home' ? '植物生长监控' : view === 'gallery' ? '照片图库' : selected ? selected.name : '拍摄项目'}</h1></div>{view !== 'home' && <button className="header-back secondary" onClick={() => setView('home')}>← 返回总览</button>}<span className={online ? 'pill ok' : 'pill warn'}>● {online ? '设备在线' : '设备离线'}</span></header>{notice && <div className="notice" role="status">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}{view === 'home' && step === 0 && <Home online={online} resolution={resolution} busy={busy} running={running} projects={projects} onCreate={beginCreate} onProject={openProject} />}{view === 'projects' && step === 0 && <Projects projects={projects} selected={selected} busy={busy} images={images} onSelect={openProject} onCreate={beginCreate} onRun={updateProject} onEnd={endProject} onGallery={openGallery} onClear={clearImages} />}{view === 'gallery' && step === 0 && <Gallery project={selected} images={images} onDelete={deleteImage} onClear={clearImages} />}</main>{step > 0 && <Wizard step={step} setStep={setStep} onClose={closeCreate} online={online} resolution={resolution} draft={draft} configs={configs} saved={saved} setSaved={setSaved} setDraft={setDraft} apply={apply} trialUrl={trialUrl} trialStreamUrl={trialStreamUrl} trialStale={trialStale} trialBusy={trialBusy} onTrialShot={trialShot} onStartTrialStream={startTrialStream} onStopTrialStream={stopTrialStream} onReturnToLive={returnToLive} name={name} setName={setName} info={info} setInfo={setInfo} interval={interval} intervalMode={intervalMode} customIntervalValue={customIntervalValue} customIntervalUnit={customIntervalUnit} updateCustomInterval={updateCustomInterval} setCustomIntervalUnit={setCustomIntervalUnit} selectInterval={selectInterval} days={days} setDays={setDays} estimate={estimate} intervalLabel={intervalLabel} busy={busy} onCreate={create} />}</div>
 }
 
 function Home({ online, resolution, busy, running, projects, onCreate, onProject }: { online: boolean; resolution: Resolution; busy: boolean; running?: Project; projects: Project[]; onCreate: () => void; onProject: (project: Project) => void }) {
@@ -404,7 +422,7 @@ function CameraControl({ config, draft, setDraft, apply, previewing = false, onP
   </div>
 }
 
-function Wizard({ step, setStep, onClose, online, resolution, draft, configs, saved, setSaved, setDraft, apply, trialUrl, trialStale, trialBusy, onTrialShot, onReturnToLive, name, setName, info, setInfo, interval, intervalMode, customIntervalValue, customIntervalUnit, updateCustomInterval, setCustomIntervalUnit, selectInterval, days, setDays, estimate, intervalLabel, busy, onCreate }: {
+function Wizard({ step, setStep, onClose, online, resolution, draft, configs, saved, setSaved, setDraft, apply, trialUrl, trialStreamUrl, trialStale, trialBusy, onTrialShot, onStartTrialStream, onStopTrialStream, onReturnToLive, name, setName, info, setInfo, interval, intervalMode, customIntervalValue, customIntervalUnit, updateCustomInterval, setCustomIntervalUnit, selectInterval, days, setDays, estimate, intervalLabel, busy, onCreate }: {
   step: number
   setStep: (step: number) => void
   onClose: () => void
@@ -417,9 +435,12 @@ function Wizard({ step, setStep, onClose, online, resolution, draft, configs, sa
   setDraft: ConfigSetter
   apply: (config: Config, value: number) => void
   trialUrl: string | null
+  trialStreamUrl: string | null
   trialStale: boolean
   trialBusy: boolean
   onTrialShot: () => void
+  onStartTrialStream: () => void
+  onStopTrialStream: () => void
   onReturnToLive: () => void
   name: string
   setName: (value: string) => void
@@ -440,7 +461,7 @@ function Wizard({ step, setStep, onClose, online, resolution, draft, configs, sa
   onCreate: () => void
 }) {
   const exposure = draft.find(config => config.ID === CONTROL.exposureTime)
-  const previewBlocked = step === 2 && !trialUrl && exposure !== undefined && exposure.value > EXPOSURE_PREVIEW_LIMIT
+  const previewBlocked = step === 2 && !trialUrl && !trialStreamUrl && exposure !== undefined && exposure.value > EXPOSURE_PREVIEW_LIMIT
   const [exposureWarning, setExposureWarning] = useState(false)
   const warningSeen = useRef(exposureWarningWasSeen())
   const wasPreviewBlocked = useRef(false)
@@ -458,7 +479,7 @@ function Wizard({ step, setStep, onClose, online, resolution, draft, configs, sa
 
   return <div className="create-page" aria-labelledby="wizard-title"><section className="wizard"><header><div><p>NEW SHOOTING PROJECT</p><h2 id="wizard-title">创建拍摄项目</h2></div><button aria-label="关闭" onClick={onClose}>×</button></header><div className="steps">{['项目信息', '相机调试', '拍摄配置', '确认创建'].map((label, index) => <span className={step === index + 1 ? 'current' : step > index + 1 ? 'done' : ''} key={label}><b>{step > index + 1 ? '✓' : index + 1}</b>{label}</span>)}</div><div className="wizard-body">
     {step === 1 && <div className="intro"><div><p>STEP 01 / 04</p><h3>先定义这次拍摄</h3><label htmlFor="project-name">项目名称<input id="project-name" autoFocus value={name} onChange={event => setName(event.target.value)} placeholder="例如：龟背竹 · 春季生长" /></label><label htmlFor="project-info">项目说明 <small>可选</small><textarea id="project-info" value={info} onChange={event => setInfo(event.target.value)} placeholder="记录拍摄地点、植物品种或实验备注" /></label></div></div>}
-    {step === 2 && <div className="tune"><div><div className={`trial-stage ${previewBlocked ? 'preview-blocked' : ''}`}>{trialUrl ? <><img src={trialUrl} alt="试拍原图" /><span className="trial-badge">试拍原图 · {resolution.capture.width} × {resolution.capture.height}</span>{trialStale && <span className="trial-stale">参数已变化，请重新试拍</span>}</> : trialBusy ? <div className="offline">正在试拍<small>相机正在切换到实际拍摄分辨率</small></div> : <Preview compact online={online} resolution={resolution.preview} />}{previewBlocked && <div className="preview-limit-overlay" role="status"><strong>实时预览已暂停</strong><span>曝光时间超过 100ms，请点击“试拍”查看实际效果。</span></div>}</div><div className="trial-actions"><button type="button" className="primary" disabled={trialBusy} onClick={onTrialShot}>{trialBusy ? '试拍中…' : '试拍'}</button>{trialUrl && <button type="button" className="secondary" onClick={onReturnToLive}>返回实时画面</button>}</div><p className="hint">{trialUrl ? '这是一张实际拍摄分辨率的临时原图，不会保存到项目。' : previewBlocked ? '曝光时间超过实时预览能力，请使用试拍查看效果。' : '实时画面用于快速调参；点击“试拍”验证实际拍摄效果。'} <span>{saved ? '参数已应用' : '有未保存参数'}</span></p></div><div className="controls"><div className="control-title"><div><p>CAMERA CONTROLS</p><h3>画面参数</h3></div><button type="button" onClick={() => setDraft(configs)}>恢复上次保存</button></div><p className="controls-help">自动控制开启时，相机会持续调整画面；切换为手动后才显示对应的精细参数。</p>{sortControls(draft).filter(config => !isAdvancedControl(config)).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} previewing={!trialUrl} onPreviewLimit={showExposureWarning} />)}<details className="advanced-settings"><summary><span><strong>高级设置</strong><small>压缩质量和底层色彩参数</small></span><b>展开</b></summary><div className="advanced-controls">{sortControls(draft).filter(isAdvancedControl).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} previewing={!trialUrl} onPreviewLimit={showExposureWarning} />)}<p className="advanced-hint">这些参数会影响文件大小或底层色彩处理，通常保持默认即可。</p></div></details><div className="save-hint">调整完成后点击“保存参数”，这些设置会写入拍摄项目。每个参数都可以单独恢复默认值。</div></div></div>}
+    {step === 2 && <div className="tune"><div><div className={`trial-stage ${previewBlocked ? 'preview-blocked' : ''}`}>{trialUrl ? <><img src={trialUrl} alt="试拍原图" /><span className="trial-badge">试拍原图 · {resolution.capture.width} × {resolution.capture.height}</span>{trialStale && <span className="trial-stale">参数已变化，请重新试拍</span>}</> : trialStreamUrl ? <><img src={trialStreamUrl} alt="连续试拍画面" onError={() => { onStopTrialStream(); }} /><span className="trial-badge">连续试拍 · JPEG</span></> : trialBusy ? <div className="offline">正在试拍<small>相机正在切换到实际拍摄分辨率</small></div> : <Preview compact online={online} resolution={resolution.preview} />}{previewBlocked && <div className="preview-limit-overlay" role="status"><strong>实时预览已暂停</strong><span>曝光时间超过 100ms，请点击“试拍”查看实际效果。</span></div>}</div><div className="trial-actions"><button type="button" className="primary" disabled={trialBusy || !!trialStreamUrl} onClick={onTrialShot}>{trialBusy ? '试拍中…' : '试拍'}</button><button type="button" className="secondary" aria-label="连续图像流" disabled={trialBusy} onClick={trialStreamUrl ? onStopTrialStream : onStartTrialStream}>{trialStreamUrl ? '停止连续试拍' : '连续试拍'}</button>{trialUrl && <button type="button" className="secondary" onClick={onReturnToLive}>返回实时画面</button>}</div><p className="hint">{trialUrl ? '这是一张实际拍摄分辨率的临时原图，不会保存到项目。' : trialStreamUrl ? '连续试拍通过 JPEG 流更新画面，不会保存照片。' : previewBlocked ? '曝光时间超过实时预览能力，请使用试拍查看实际效果。' : '实时画面用于快速调参；点击“试拍”或“连续试拍”验证实际拍摄效果。'} <span>{saved ? '参数已应用' : '有未保存参数'}</span></p></div><div className="controls"><div className="control-title"><div><p>CAMERA CONTROLS</p><h3>画面参数</h3></div><button type="button" onClick={() => setDraft(configs)}>恢复上次保存</button></div><p className="controls-help">自动控制开启时，相机会持续调整画面；切换为手动后才显示对应的精细参数。</p>{sortControls(draft).filter(config => !isAdvancedControl(config)).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} previewing={!trialUrl && !trialStreamUrl} onPreviewLimit={showExposureWarning} />)}<details className="advanced-settings"><summary><span><strong>高级设置</strong><small>压缩质量和底层色彩参数</small></span><b>展开</b></summary><div className="advanced-controls">{sortControls(draft).filter(isAdvancedControl).map(config => <CameraControl key={config.ID} config={config} draft={draft} setDraft={setDraft} apply={apply} previewing={!trialUrl && !trialStreamUrl} onPreviewLimit={showExposureWarning} />)}<p className="advanced-hint">这些参数会影响文件大小或底层色彩处理，通常保持默认即可。</p></div></details><div className="save-hint">调整完成后点击“保存参数”，这些设置会写入拍摄项目。每个参数都可以单独恢复默认值。</div></div></div>}
     {step === 3 && <div className="config"><div><p>STEP 03 / 04</p><h3>设置拍摄节奏</h3><label htmlFor="interval">拍摄间隔<select id="interval" value={intervalMode === 'custom' ? 'custom' : String(interval)} onChange={event => selectInterval(event.target.value)}><option value={60000}>每 1 分钟</option><option value={300000}>每 5 分钟</option><option value={900000}>每 15 分钟</option><option value={3600000}>每 1 小时</option><option value="custom">自定义</option></select></label>{intervalMode === 'custom' && <div className="custom-interval" aria-label="自定义拍摄间隔"><label htmlFor="custom-interval-value">间隔数值<input id="custom-interval-value" type="number" min="1" step="1" inputMode="numeric" value={customIntervalValue} onChange={event => updateCustomInterval(event.target.value)} onBlur={() => { if (!customIntervalValue) updateCustomInterval('1') }} /></label><label htmlFor="custom-interval-unit">单位<select id="custom-interval-unit" value={customIntervalUnit} onChange={event => { const unit = event.target.value as IntervalUnit; setCustomIntervalUnit(unit); updateCustomInterval(customIntervalValue || '1', unit) }}><option value="minutes">分钟</option><option value="seconds">秒</option></select></label><small>自定义间隔至少为 1 秒。</small></div>}<label htmlFor="days">预计拍摄天数<input id="days" type="number" min="1" value={days} onChange={event => setDays(Number(event.target.value))} /></label></div><div className="estimate"><p>ESTIMATE</p><div className="estimate-metrics"><span><strong>{estimate.toLocaleString()}</strong><small>预计照片数量</small></span></div><small className="estimate-note">按拍摄间隔估算照片数量，项目中只保存单张照片。</small></div></div>}
     {step === 4 && <div className="confirm"><b>✓</b><p>STEP 04 / 04</p><h3>准备好开始记录了吗？</h3><p>确认后会创建项目，并将你保存的相机参数应用到这次拍摄。</p><div><span>项目名称<strong>{name || '未命名项目'}</strong></span><span>拍摄间隔<strong>{intervalLabel}</strong></span><span>参数状态<strong>{saved ? '已保存到项目' : '尚有参数未保存'}</strong></span></div></div>}
   </div><footer><button className="secondary" onClick={() => step === 1 ? onClose() : setStep(step - 1)}>{step === 1 ? '取消' : '返回'}</button><span><button className="secondary" onClick={() => setSaved(true)}>保存参数</button>{step < 4 ? <button className="primary" onClick={() => setStep(step + 1)}>继续 →</button> : <button className="primary" disabled={busy} onClick={onCreate}>{busy ? '创建中…' : '创建项目 ✓'}</button>}</span></footer></section>{exposureWarning && <div className="exposure-warning-backdrop" role="presentation"><section className="exposure-warning" role="alertdialog" aria-modal="true" aria-labelledby="exposure-warning-title" tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') setExposureWarning(false) }}><div className="exposure-warning-icon" aria-hidden="true">!</div><div><p>PREVIEW LIMIT</p><h3 id="exposure-warning-title">实时预览暂不可用</h3><span>曝光时间超过 100ms 后，H.264 预览无法稳定显示。请点击“试拍”查看高曝光参数下的实际照片。</span></div><button type="button" className="primary" autoFocus onClick={() => setExposureWarning(false)}>知道了</button></section></div>}</div>

@@ -140,6 +140,7 @@ func main() {
 	deviceRouter.GET("/camera", getCameraStatus)
 	deviceRouter.GET("/resolution", getResolution)
 	deviceRouter.POST("/trial-shot", trialShot)
+	deviceRouter.GET("/trial-stream", trialStream)
 
 	projectRouter := apiRouter.Group("/project")
 	projectRouter.GET("/:name", getProject)
@@ -396,6 +397,94 @@ func trialShot(c *gin.Context) {
 	c.Header("Content-Type", "image/jpeg")
 	c.Writer.WriteHeader(http.StatusOK)
 	_, _ = c.Writer.Write(frame)
+}
+
+// trialStream exposes the JPEG capture source as an MJPEG stream for camera
+// tuning. It deliberately owns the camera mode for the lifetime of the HTTP
+// request: closing the browser image cancels the request and restores H.264
+// preview in the deferred cleanup below.
+func trialStream(c *gin.Context) {
+	trialShotMu.Lock()
+	defer trialShotMu.Unlock()
+	if sch != nil && sch.GetProject() != nil {
+		c.JSON(http.StatusConflict, jsend.SimpleErr("pause the shooting project before taking a trial stream"))
+		return
+	}
+	if modeCoordinator == nil {
+		c.JSON(http.StatusServiceUnavailable, jsend.SimpleErr("camera is unavailable"))
+		return
+	}
+	if previewController != nil && previewController.Hub != nil {
+		previewController.Hub.CloseAll()
+		time.Sleep(300 * time.Millisecond)
+	}
+	if err := modeCoordinator.Switch(cameramode.ModeCapture); err != nil {
+		logger.Errorw("continuous trial stream capture mode switch failed", "error", err)
+		http.Error(c.Writer, "camera capture mode unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	defer func() {
+		if err := modeCoordinator.Switch(cameramode.ModePreview); err != nil {
+			logger.Warnw("restore preview after continuous trial stream failed", "error", err)
+		}
+	}()
+
+	frames := modeCoordinator.CaptureFrames()
+	if frames == nil {
+		http.Error(c.Writer, "jpeg capture stream is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		http.Error(c.Writer, "streaming is unsupported", http.StatusInternalServerError)
+		return
+	}
+	// Let auto exposure and white balance settle after the mode transition,
+	// matching the single-shot warmup behavior.
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	c.Header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+	c.Status(http.StatusOK)
+	for i := 0; i < modeCoordinator.TrialWarmupFrames(); i++ {
+		select {
+		case frame, open := <-frames:
+			if !open {
+				return
+			}
+			if len(frame) == 0 {
+				i--
+			}
+		case <-c.Request.Context().Done():
+			return
+		}
+	}
+	for {
+		select {
+		case frame, open := <-frames:
+			if !open {
+				return
+			}
+			if len(frame) == 0 {
+				continue
+			}
+			if _, err := fmt.Fprintf(c.Writer, "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(frame)); err != nil {
+				logger.Debugw("continuous trial stream client disconnected", "error", err)
+				return
+			}
+			if _, err := c.Writer.Write(frame); err != nil {
+				logger.Debugw("continuous trial stream frame write failed", "error", err)
+				return
+			}
+			if _, err := c.Writer.Write([]byte("\r\n")); err != nil {
+				logger.Debugw("continuous trial stream boundary write failed", "error", err)
+				return
+			}
+			flusher.Flush()
+		case <-c.Request.Context().Done():
+			return
+		}
+	}
 }
 
 func getProject(c *gin.Context) {

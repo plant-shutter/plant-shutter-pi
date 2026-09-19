@@ -78,6 +78,14 @@ func (c *ModeCoordinator) SetTrialWarmupFrames(frames int) {
 	}
 	c.trialWarmupFrames = frames
 }
+
+// TrialWarmupFrames returns the number of JPEG frames discarded after a mode
+// transition before exposing trial images.
+func (c *ModeCoordinator) TrialWarmupFrames() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.trialWarmupFrames
+}
 func (c *ModeCoordinator) Switch(mode cameramode.Mode) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -126,6 +134,15 @@ func (c *ModeCoordinator) SetCaptureFrames(frames <-chan []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.captureFrames = frames
+}
+
+// CaptureFrames returns the currently active JPEG frame stream. The caller
+// must already have switched the coordinator to capture mode and is expected
+// to stop consuming the stream when its request is canceled.
+func (c *ModeCoordinator) CaptureFrames() <-chan []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.captureFrames
 }
 
 // CaptureOnce switches to the JPEG source, waits for one complete image, and
