@@ -18,7 +18,7 @@ RUN mkdir -p /opt/objectbox/include /opt/objectbox/lib && \
 RUN --mount=type=bind,source=. \
   --mount=type=cache,target=/root/.cache \
   --mount=type=cache,target=/go/pkg/mod \
-  export GOPROXY=https://proxy.golang.com.cn && \
+  export GOPROXY=https://goproxy.io,direct && \
   export CC=aarch64-linux-gnu-gcc && \
   export CGO_CFLAGS=-I/opt/objectbox/include && \
   export CGO_LDFLAGS='-L/opt/objectbox/lib' && \
